@@ -1,3 +1,7 @@
+#include <MIDI.h>
+
+/* Correspondance between midi notes and value */
+
 #define mid_C0            0
 #define mid_D0            2
 #define mid_E0            4
@@ -71,3 +75,16 @@
 #define SHARP         1
 #define FLAT         -1
 #define OCTAVE       12
+
+
+/* Minimal set of functions for MIDI */
+void midi_send_master_volume(uint8_t volume, midi::MidiInterface<HardwareSerial> MIDI) {
+    uint8_t data[6];
+    data[0]=0x7f; //REALTIME
+    data[1]=0x7f; //Disregard
+    data[2]=0x04; //SubID Device control
+    data[3]=0x01; //SubID Master volume
+    data[4]=volume; //LSB
+    data[5]=volume; //MSB
+    MIDI.sendSysEx(8, data, 0);
+}
