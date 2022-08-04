@@ -114,9 +114,20 @@ std::list<int> notes_to_remove;
 
 //MCP23X17
 #define MCP23017_ADDRESS 0x20
-MCP23017  mcp_md_0 = MCP23017(MCP23017_ADDRESS | 0x0);
-MCP23017  mcp_md_1 = MCP23017(MCP23017_ADDRESS | 0x4);
+#define MCP23017_MD_0_SUB_ADDRESS 0x0
+#define MCP23017_MD_1_SUB_ADDRESS 0x4
 
+MCP23017  mcp_md_0 = MCP23017(MCP23017_ADDRESS | MCP23017_MD_0_SUB_ADDRESS);
+MCP23017  mcp_md_1 = MCP23017(MCP23017_ADDRESS | MCP23017_MD_1_SUB_ADDRESS);
+
+uint16_t read_burst16_mcp(uint8_t addr) {
+    uint16_t buff;
+    Wire.requestFrom(MCP23017_ADDRESS | addr, 2);
+
+    buff = (Wire.read())<<8;
+    buff |= Wire.read();
+    return buff;
+}
 
 
 //OLED
@@ -291,6 +302,11 @@ void setup()
     mcp_md_0.portMode(MCP23017Port::B, 0xFF, 0xFF); //Input PULLUP
     mcp_md_1.portMode(MCP23017Port::A, 0xFF, 0xFF); //Input PULLUP
     mcp_md_1.portMode(MCP23017Port::B, 0xFF, 0xFF); //Input PULLUP
+    //Dummy read to point to register
+    mcp_md_0.readPort(MCP23017Port::B);
+    mcp_md_1.readPort(MCP23017Port::B);
+
+
 
     //Configure GPIO to INPUT
     pinMode(KEY_MENU, INPUT_PULLUP);
@@ -405,10 +421,13 @@ void loop()
     //-----------------------------------
     // Key acquisition from MCP
     //-----------------------------------
-    keys_md =  (uint32_t)  mcp_md_0.readPort(MCP23017Port::B) & 0xff;
-    keys_md |= ((uint32_t) mcp_md_0.readPort(MCP23017Port::A) & 0xff)<<8;
-    keys_md |= ((uint32_t) mcp_md_1.readPort(MCP23017Port::B) & 0xff)<<16;
-    keys_md |= ((uint32_t) mcp_md_1.readPort(MCP23017Port::A) & 0xff)<<24;
+    //Use burst instead of dedicated read to increase acquisition speed
+    // keys_md =  (uint32_t)  mcp_md_0.readPort(MCP23017Port::B) & 0xff;
+    // keys_md |= ((uint32_t) mcp_md_0.readPort(MCP23017Port::A) & 0xff)<<8;
+    // keys_md |= ((uint32_t) mcp_md_1.readPort(MCP23017Port::B) & 0xff)<<16;
+    // keys_md |= ((uint32_t) mcp_md_1.readPort(MCP23017Port::A) & 0xff)<<24;
+    keys_md =   (uint32_t)read_burst16_mcp(MCP23017_MD_0_SUB_ADDRESS)&0xffff;
+    keys_md |= ((uint32_t)read_burst16_mcp(MCP23017_MD_1_SUB_ADDRESS)&0xffff)<<16;
 
     //Conversion to R_press
     keys_md_row[0] =  keys_md >> (10+ROW_NUMBER_R);
