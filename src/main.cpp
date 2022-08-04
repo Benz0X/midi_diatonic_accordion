@@ -12,14 +12,14 @@
 //-----------------------------------
 //Libs & header import
 //-----------------------------------
+#include <SPI.h> //although SPI is not needed, some dependencies in there needs it
 #include <MIDI.h>
 #include <mt32.h>
 #include "midi_helper.h"
 #include <SFE_BMP180.h>
 #include <Wire.h>
 #include <list>
-#include <Adafruit_MCP23X17.h>
-#include <Adafruit_BMP085.h>
+#include <MCP23017.h>
 //OLED lib
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
@@ -113,8 +113,10 @@ std::list<int> notes_to_play;
 std::list<int> notes_to_remove;
 
 //MCP23X17
-Adafruit_MCP23X17 mcp_md_0;
-Adafruit_MCP23X17 mcp_md_1;
+#define MCP23017_ADDRESS 0x20
+MCP23017  mcp_md_0 = MCP23017(MCP23017_ADDRESS | 0x0);
+MCP23017  mcp_md_1 = MCP23017(MCP23017_ADDRESS | 0x4);
+
 
 
 //OLED
@@ -277,23 +279,18 @@ void setup()
     #ifdef DEBUG
         Serial.println("Init mcp_md_0\n");
     #endif
-    if (!mcp_md_0.begin_I2C()) {
-        Serial.println("Error mcp_md_0.");
-        while (1);
-    }
+    mcp_md_0.init();
     #ifdef DEBUG
         Serial.println("Init mcp_md_1\n");
     #endif
-    if (!mcp_md_1.begin_I2C(0x24)) {
-        Serial.println("Error mcp_md_1.");
-        while (1);
-    }
+    mcp_md_1.init();
+
 
     //Configure MCPs to all input PULLUP
-    for(int i=0;i<16;i++){
-        mcp_md_0.pinMode(i, INPUT_PULLUP);
-        mcp_md_1.pinMode(i, INPUT_PULLUP);
-    }
+    mcp_md_0.portMode(MCP23017Port::A, 0xFF, 0xFF); //Input PULLUP
+    mcp_md_0.portMode(MCP23017Port::B, 0xFF, 0xFF); //Input PULLUP
+    mcp_md_1.portMode(MCP23017Port::A, 0xFF, 0xFF); //Input PULLUP
+    mcp_md_1.portMode(MCP23017Port::B, 0xFF, 0xFF); //Input PULLUP
 
     //Configure GPIO to INPUT
     pinMode(KEY_MENU, INPUT_PULLUP);
@@ -408,10 +405,10 @@ void loop()
     //-----------------------------------
     // Key acquisition from MCP
     //-----------------------------------
-    keys_md =  (uint32_t)  mcp_md_0.readGPIO(1) & 0xff;
-    keys_md |= ((uint32_t) mcp_md_0.readGPIO(0) & 0xff)<<8;
-    keys_md |= ((uint32_t) mcp_md_1.readGPIO(1) & 0xff)<<16;
-    keys_md |= ((uint32_t) mcp_md_1.readGPIO(0) & 0xff)<<24;
+    keys_md =  (uint32_t)  mcp_md_0.readPort(MCP23017Port::B) & 0xff;
+    keys_md |= ((uint32_t) mcp_md_0.readPort(MCP23017Port::A) & 0xff)<<8;
+    keys_md |= ((uint32_t) mcp_md_1.readPort(MCP23017Port::B) & 0xff)<<16;
+    keys_md |= ((uint32_t) mcp_md_1.readPort(MCP23017Port::A) & 0xff)<<24;
 
     //Conversion to R_press
     keys_md_row[0] =  keys_md >> (10+ROW_NUMBER_R);
