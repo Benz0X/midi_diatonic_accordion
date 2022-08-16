@@ -8,11 +8,13 @@
 
 
 void mt32_send_sysex(uint8_t cmd, uint8_t arg, midi::MidiInterface<HardwareSerial> MIDI) {
-    uint8_t data[3];
-    data[0]=0x7d; //MT32
-    data[1]=cmd;
-    data[2]=arg;
-    MIDI.sendSysEx(5, data, 0);
+    uint8_t data[5];
+    data[0]=0xF0; //MT32
+    data[1]=0x7d; //MT32
+    data[2]=cmd;
+    data[3]=arg;
+    data[4]=0xf7;
+    MIDI.sendSysEx(5, data, 1);
 }
 
 void mt32_switch_rom_set(uint8_t set, midi::MidiInterface<HardwareSerial> MIDI) {
