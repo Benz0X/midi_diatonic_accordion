@@ -500,7 +500,7 @@ void loop()
         if (bmp_status == 0) {Serial.println("error retrieving temp measurement\n");}
 
         // Start a pressure measurement:
-        bmp_status = bmp_in.startPressure(3);
+        bmp_status = bmp_in.startPressure(0);
         t_start = millis();
         if (bmp_status == 0) {Serial.println("error retrieving pressure measurement\n");}
         waiting_t=false;
