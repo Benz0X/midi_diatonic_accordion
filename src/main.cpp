@@ -10,7 +10,7 @@
 #undef max
 #undef min
 
-
+// #define DEBUG
 
 //-----------------------------------
 //Libs & header import
@@ -179,28 +179,49 @@ MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDIPI);
 uint8_t volume_attenuation  = 0;
 uint8_t expression          = 127;
 uint8_t mt32_rom_set        = 0;
-uint8_t mt32_soundfont      = 0;
+uint8_t mt32_soundfont      = 1;
 int8_t  octave              = 1;
 uint8_t pressuremode        = 2;
+uint8_t program_rh          = 0;
+uint8_t program_lh          = 1;
+uint8_t channel_rh          = 1;
+uint8_t channel_lh          = 2;
 bool    mt32_synth          = 0;
 bool    debug_oled          = 0;
 bool    dummy               = 0;
 bool    reverse_expr_volume = 0;
 bool    fifth_enable        = 1;
 
+result menu_midi_program_change_rh() {
+    #ifndef DEBUG
+        MIDIUSB.sendProgramChange(program_rh, channel_rh);
+    #endif
+    MIDIPI.sendProgramChange(program_rh, channel_rh);
+    return proceed;
+}
+result menu_midi_program_change_lh() {
+    #ifndef DEBUG
+        MIDIUSB.sendProgramChange(program_lh, channel_lh);
+    #endif
+    MIDIPI.sendProgramChange(program_lh, channel_lh);
+    return proceed;
+}
 result menu_mt32_switch_rom_set() {
     mt32_switch_rom_set(mt32_rom_set, MIDIPI);
     return proceed;
 }
 result menu_mt32_switch_soundfont() {
     mt32_switch_soundfont(mt32_soundfont, MIDIPI);
+    menu_midi_program_change_rh();
+    menu_midi_program_change_lh();
     return proceed;
 }
 result menu_mt32_switch_synth() {
     mt32_switch_synth(mt32_synth, MIDIPI);
+    menu_midi_program_change_rh();
+    menu_midi_program_change_lh();
     return proceed;
 }
-
 //MT32 submenu
 TOGGLE(mt32_synth, synthctrl, "Synth     : ", doNothing, noEvent, noStyle
        , VALUE("SF", HIGH, menu_mt32_switch_synth, noEvent)
@@ -211,17 +232,24 @@ TOGGLE(mt32_rom_set, romctrl, "ROM       : ", doNothing, noEvent, noStyle
        , VALUE("MT32_NEW", 0x01, menu_mt32_switch_rom_set, noEvent)
        , VALUE("CM_32L", 0x02, menu_mt32_switch_rom_set, noEvent)
       );
-TOGGLE(reverse_expr_volume, reversectrl, "Velo/expr     : ", doNothing, noEvent, noStyle
-       , VALUE("NORMAL", LOW, menu_mt32_switch_synth, noEvent)
-       , VALUE("INVERTED", HIGH, menu_mt32_switch_synth, noEvent)
-      );
 MENU(mt32_config, "MT32 config", doNothing, noEvent, wrapStyle
      , FIELD(mt32_soundfont, "SoundFont :", "", 0, 10, 1, 1, menu_mt32_switch_soundfont, anyEvent, wrapStyle)
      , SUBMENU(synthctrl)
      , SUBMENU(romctrl)
-     , SUBMENU(reversectrl)
     );
 
+//MIDICONF submenu
+TOGGLE(reverse_expr_volume, reversectrl, "Velo/expr     : ", doNothing, noEvent, noStyle
+       , VALUE("NORMAL", LOW, menu_mt32_switch_synth, noEvent)
+       , VALUE("INVERTED", HIGH, menu_mt32_switch_synth, noEvent)
+      );
+MENU(midi_config, "MIDI config", doNothing, noEvent, wrapStyle
+     , FIELD(channel_lh, "Channel LH :", "", 0, 15, 1, 1, doNothing, anyEvent, wrapStyle)
+     , FIELD(channel_rh, "Channel RH :", "", 0, 15, 1, 1, doNothing, anyEvent, wrapStyle)
+     , FIELD(program_lh, "Program LH :", "", 0, 128, 16, 1, menu_midi_program_change_lh, anyEvent, wrapStyle)
+     , FIELD(program_rh, "Program RH :", "", 0, 128, 16, 1, menu_midi_program_change_rh, anyEvent, wrapStyle)
+     , SUBMENU(reversectrl)
+    );
 //Debug submenu
 TOGGLE(debug_oled, debugoledctrl, "Debug OLED : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
@@ -239,6 +267,21 @@ MENU(debug_config, "Debug menu", doNothing, noEvent, wrapStyle
      , SUBMENU(pressurectrl) //for some reason, menu must have at least 2 elements
     );
 //Keyboard layout submenu TODO
+TOGGLE(octave, octavectrl, "Octaved : ", doNothing, noEvent, noStyle
+       , VALUE("-2", -2, doNothing, noEvent)
+       , VALUE("-1", -1, doNothing, noEvent)
+       , VALUE("2", 2, doNothing, noEvent)
+       , VALUE("1", 1, doNothing, noEvent)
+       , VALUE("0", 0, doNothing, noEvent)
+      );
+TOGGLE(fifth_enable, fifthctrl, "Fifth : ", doNothing, noEvent, noStyle
+       , VALUE("ON", HIGH, doNothing, noEvent)
+       , VALUE("OFF", LOW, doNothing, noEvent)
+      );
+MENU(keyboard_config, "Keyboard config", doNothing, noEvent, wrapStyle
+     , SUBMENU(octavectrl)
+     , SUBMENU(fifthctrl)
+    );
 
 //Main menu
 TOGGLE(volume_attenuation, volmumectrl, "Volume att: ", doNothing, noEvent, noStyle
@@ -255,23 +298,12 @@ TOGGLE(expression, expressionctrl, "Expression: ", doNothing, noEvent, noStyle
        , VALUE("48", 48, doNothing, noEvent)
        , VALUE("20", 20, doNothing, noEvent)
       );
-TOGGLE(octave, octavectrl, "Octaved : ", doNothing, noEvent, noStyle
-       , VALUE("-2", -2, doNothing, noEvent)
-       , VALUE("-1", -1, doNothing, noEvent)
-       , VALUE("2", 2, doNothing, noEvent)
-       , VALUE("1", 1, doNothing, noEvent)
-       , VALUE("0", 0, doNothing, noEvent)
-      );
-TOGGLE(fifth_enable, fifthctrl, "Fifth : ", doNothing, noEvent, noStyle
-       , VALUE("ON", HIGH, doNothing, noEvent)
-       , VALUE("OFF", LOW, doNothing, noEvent)
-      );
 MENU(mainMenu, "Main menu", doNothing, noEvent, wrapStyle
      , SUBMENU(volmumectrl)
      , SUBMENU(expressionctrl)
      , SUBMENU(mt32_config)
-     , SUBMENU(octavectrl)
-     , SUBMENU(fifthctrl)
+     , SUBMENU(midi_config)
+     , SUBMENU(keyboard_config)
      , SUBMENU(debug_config)
     );
 
@@ -369,7 +401,7 @@ void setup()
 
     //Set I2C frequ
     Wire.begin();
-    Wire.setClock(400000);
+    Wire.setClock(500000); //500 seems OK, reduce to 400 if artifact
 
     //Init OLED & menu
     oled.begin(&Adafruit128x64, OLED_I2C_ADDRESS);
@@ -455,6 +487,9 @@ void setup()
     p_tare=P;
 
     mt32_switch_synth(MT32_SOUNDFONT, MIDIPI);
+    menu_mt32_switch_soundfont();
+    menu_midi_program_change_rh();
+    menu_midi_program_change_lh();
 
     #ifdef DEBUG
         Serial.println("INIT OK.");
@@ -694,34 +729,34 @@ void loop()
     //Right hand on channel 1
     while (!notes_to_remove_r.empty()) {
         #ifndef DEBUG
-            MIDIUSB.sendNoteOff(notes_to_remove_r.back()+12*octave, 0, 1);
+            MIDIUSB.sendNoteOff(notes_to_remove_r.back()+12*octave, 0, channel_rh);
         #endif
-        MIDIPI.sendNoteOff(notes_to_remove_r.back()+12*octave, 0, 1);
+        MIDIPI.sendNoteOff(notes_to_remove_r.back()+12*octave, 0, channel_rh);
 
         notes_to_remove_r.pop_back();
     }
     while (!notes_to_play_r.empty()) {
         #ifndef DEBUG
-            MIDIUSB.sendNoteOn(notes_to_play_r.back()+12*octave, expression_resolved, 1);
+            MIDIUSB.sendNoteOn(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
         #endif
-        MIDIPI.sendNoteOn(notes_to_play_r.back()+12*octave, expression_resolved, 1);
+        MIDIPI.sendNoteOn(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
         notes_to_play_r.pop_back();
     }
 
     //Left hand on channel 2
     while (!notes_to_remove_l.empty()) {
         #ifndef DEBUG
-            MIDIUSB.sendNoteOff(notes_to_remove_l.back(), 0, 2);
+            MIDIUSB.sendNoteOff(notes_to_remove_l.back(), 0, channel_lh);
         #endif
-        MIDIPI.sendNoteOff(notes_to_remove_l.back(), 0, 2);
+        MIDIPI.sendNoteOff(notes_to_remove_l.back(), 0, channel_lh);
 
         notes_to_remove_l.pop_back();
     }
     while (!notes_to_play_l.empty()) {
         #ifndef DEBUG
-            MIDIUSB.sendNoteOn(notes_to_play_l.back(), expression_resolved, 2);
+            MIDIUSB.sendNoteOn(notes_to_play_l.back(), expression_resolved, channel_lh);
         #endif
-        MIDIPI.sendNoteOn(notes_to_play_l.back(), expression_resolved, 2);
+        MIDIPI.sendNoteOn(notes_to_play_l.back(), expression_resolved, channel_lh);
         notes_to_play_l.pop_back();
     }
 
@@ -729,11 +764,11 @@ void loop()
     if (bellow != NOPUSH) {bellow_prev = bellow;}
     if(volume_prev!=volume_resolved){
         #ifndef DEBUG
-            MIDIUSB.sendControlChange(7,volume_resolved, 1);
-            MIDIUSB.sendControlChange(7,volume_resolved, 2);
+            MIDIUSB.sendControlChange(7,volume_resolved, channel_rh);
+            MIDIUSB.sendControlChange(7,volume_resolved, channel_lh);
         #endif
-        MIDIPI.sendControlChange(7,volume_resolved, 1);
-        MIDIPI.sendControlChange(7,volume_resolved, 2);
+        MIDIPI.sendControlChange(7,volume_resolved, channel_rh);
+        MIDIPI.sendControlChange(7,volume_resolved, channel_lh);
     }
     volume_prev=volume_resolved;
 
