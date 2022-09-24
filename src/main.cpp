@@ -172,11 +172,37 @@ bool waiting_p=0;
 //Midi creation
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDIUSB);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDIPI);
+//Helper functions
+void midi_broadcast_control_change(uint8_t cc, uint8_t value, uint8_t channel) {
+    #ifndef DEBUG
+        MIDIUSB.sendControlChange(cc, value, channel);
+    #endif
+    MIDIPI.sendControlChange(cc, value, channel);
+}
+
+void midi_broadcast_program_change(uint8_t program, uint8_t channel) {
+    #ifndef DEBUG
+        MIDIUSB.sendProgramChange(program, channel);
+    #endif
+    MIDIPI.sendProgramChange(program, channel);
+}
+void midi_broadcast_note_on(uint8_t note, uint8_t expression, uint8_t channel) {
+    #ifndef DEBUG
+        MIDIUSB.sendNoteOn(note, expression, channel);
+    #endif
+    MIDIPI.sendNoteOn(note, expression, channel);
+}
+void midi_broadcast_note_off(uint8_t note, uint8_t expression, uint8_t channel) {
+    #ifndef DEBUG
+        MIDIUSB.sendNoteOff(note, expression, channel);
+    #endif
+    MIDIPI.sendNoteOff(note, expression, channel);
+}
 
 //-----------------------------------
 //Menu definition
 //-----------------------------------
-uint8_t volume_attenuation  = 0;
+uint8_t volume_attenuation  = 48;
 uint8_t expression          = 127;
 uint8_t mt32_rom_set        = 0;
 uint8_t mt32_soundfont      = 1;
@@ -186,24 +212,58 @@ uint8_t program_rh          = 0;
 uint8_t program_lh          = 1;
 uint8_t channel_rh          = 1;
 uint8_t channel_lh          = 2;
-bool    mt32_synth          = 0;
+uint8_t pano_rh             = 48;
+uint8_t pano_lh             = 52;
+uint8_t reverb_rh           = 32;
+uint8_t reverb_lh           = 32;
+uint8_t chorus_rh           = 4;
+uint8_t chorus_lh           = 0;
+bool    mt32_synth          = MT32_SOUNDFONT;
 bool    debug_oled          = 0;
 bool    dummy               = 0;
 bool    reverse_expr_volume = 0;
 bool    fifth_enable        = 1;
+bool    bassoon_enable      = 0;
 
+
+result menu_midi_pano_change_rh() {
+    midi_broadcast_control_change(MIDI_CC_PAN,pano_rh, channel_rh);
+    return proceed;
+}
+result menu_midi_pano_change_lh() {
+    midi_broadcast_control_change(MIDI_CC_PAN,pano_lh, channel_lh);
+    return proceed;
+}
+result menu_midi_reverb_change_rh() {
+    midi_broadcast_control_change(MIDI_CC_REVERB,reverb_rh, channel_rh);
+    return proceed;
+}
+result menu_midi_reverb_change_lh() {
+    midi_broadcast_control_change(MIDI_CC_REVERB,reverb_lh, channel_lh);
+    return proceed;
+}
+result menu_midi_chorus_change_rh() {
+    midi_broadcast_control_change(MIDI_CC_CHORUS,chorus_rh, channel_rh);
+    return proceed;
+}
+result menu_midi_chorus_change_lh() {
+    midi_broadcast_control_change(MIDI_CC_CHORUS,chorus_lh, channel_lh);
+    return proceed;
+}
 result menu_midi_program_change_rh() {
-    #ifndef DEBUG
-        MIDIUSB.sendProgramChange(program_rh, channel_rh);
-    #endif
-    MIDIPI.sendProgramChange(program_rh, channel_rh);
+    midi_broadcast_program_change(program_rh, channel_rh);
+    menu_midi_pano_change_rh();
+    menu_midi_reverb_change_rh();
+    menu_midi_chorus_change_rh();
+    midi_broadcast_control_change(MIDI_CC_VOLUME, 0, channel_rh);
     return proceed;
 }
 result menu_midi_program_change_lh() {
-    #ifndef DEBUG
-        MIDIUSB.sendProgramChange(program_lh, channel_lh);
-    #endif
-    MIDIPI.sendProgramChange(program_lh, channel_lh);
+    midi_broadcast_program_change(program_lh, channel_lh);
+    menu_midi_pano_change_lh();
+    menu_midi_reverb_change_lh();
+    menu_midi_chorus_change_lh();
+    midi_broadcast_control_change(MIDI_CC_VOLUME, 0, channel_lh);
     return proceed;
 }
 result menu_mt32_switch_rom_set() {
@@ -239,15 +299,21 @@ MENU(mt32_config, "MT32 config", doNothing, noEvent, wrapStyle
     );
 
 //MIDICONF submenu
-TOGGLE(reverse_expr_volume, reversectrl, "Velo/expr     : ", doNothing, noEvent, noStyle
+TOGGLE(reverse_expr_volume, reversectrl, "Velo/expr : ", doNothing, noEvent, noStyle
        , VALUE("NORMAL", LOW, menu_mt32_switch_synth, noEvent)
        , VALUE("INVERTED", HIGH, menu_mt32_switch_synth, noEvent)
       );
 MENU(midi_config, "MIDI config", doNothing, noEvent, wrapStyle
-     , FIELD(channel_lh, "Channel LH :", "", 0, 15, 1, 1, doNothing, anyEvent, wrapStyle)
-     , FIELD(channel_rh, "Channel RH :", "", 0, 15, 1, 1, doNothing, anyEvent, wrapStyle)
+     , FIELD(channel_lh, "Channel LH :", "", 0, 15, 1, 1  , doNothing                  , anyEvent, wrapStyle)
+     , FIELD(channel_rh, "Channel RH :", "", 0, 15, 1, 1  , doNothing                  , anyEvent, wrapStyle)
      , FIELD(program_lh, "Program LH :", "", 0, 128, 16, 1, menu_midi_program_change_lh, anyEvent, wrapStyle)
      , FIELD(program_rh, "Program RH :", "", 0, 128, 16, 1, menu_midi_program_change_rh, anyEvent, wrapStyle)
+     , FIELD(pano_lh   , "Pano LH :"   , "", 0, 127, 16, 1, menu_midi_pano_change_lh   , anyEvent, wrapStyle)
+     , FIELD(pano_rh   , "Pano RH :"   , "", 0, 127, 16, 1, menu_midi_pano_change_rh   , anyEvent, wrapStyle)
+     , FIELD(reverb_lh , "Reverb LH :" , "", 0, 127, 16, 1, menu_midi_reverb_change_lh , anyEvent, wrapStyle)
+     , FIELD(reverb_rh , "Reverb RH :" , "", 0, 127, 16, 1, menu_midi_reverb_change_rh , anyEvent, wrapStyle)
+     , FIELD(chorus_lh , "Chorus LH :" , "", 0, 127, 16, 1, menu_midi_chorus_change_lh , anyEvent, wrapStyle)
+     , FIELD(chorus_rh , "Chorus RH :" , "", 0, 127, 16, 1, menu_midi_chorus_change_rh , anyEvent, wrapStyle)
      , SUBMENU(reversectrl)
     );
 //Debug submenu
@@ -278,9 +344,14 @@ TOGGLE(fifth_enable, fifthctrl, "Fifth : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
+TOGGLE(bassoon_enable, bassoonctrl, "Bassoon : ", doNothing, noEvent, noStyle
+       , VALUE("ON", HIGH, doNothing, noEvent)
+       , VALUE("OFF", LOW, doNothing, noEvent)
+      );
 MENU(keyboard_config, "Keyboard config", doNothing, noEvent, wrapStyle
      , SUBMENU(octavectrl)
      , SUBMENU(fifthctrl)
+     , SUBMENU(bassoonctrl)
     );
 
 //Main menu
@@ -401,7 +472,7 @@ void setup()
 
     //Set I2C frequ
     Wire.begin();
-    Wire.setClock(500000); //500 seems OK, reduce to 400 if artifact
+    Wire.setClock(400000); //500 seems OK, reduce to 400 if artifact
 
     //Init OLED & menu
     oled.begin(&Adafruit128x64, OLED_I2C_ADDRESS);
@@ -486,10 +557,18 @@ void setup()
     if (bmp_status == 0) {Serial.println("error retrieving pressure measurement\n");}
     p_tare=P;
 
-    mt32_switch_synth(MT32_SOUNDFONT, MIDIPI);
+    mt32_switch_synth(mt32_synth, MIDIPI);
     menu_mt32_switch_soundfont();
     menu_midi_program_change_rh();
     menu_midi_program_change_lh();
+    menu_midi_pano_change_lh();
+    menu_midi_pano_change_rh();
+    menu_midi_reverb_change_rh();
+    menu_midi_reverb_change_lh();
+    menu_midi_chorus_change_rh();
+    menu_midi_chorus_change_lh();
+    midi_broadcast_control_change(MIDI_CC_VOLUME, 0, channel_lh);
+    midi_broadcast_control_change(MIDI_CC_VOLUME, 0, channel_rh);
 
     #ifdef DEBUG
         Serial.println("INIT OK.");
@@ -641,11 +720,19 @@ void loop()
                 if (R_press[i][j]) {
                     notes_to_remove_r.push_back(R_notesP[i][j]);
                     notes_to_play_r.push_back(R_notesT[i][j]);
+                    if(bassoon_enable){
+                        notes_to_remove_r.push_back(R_notesP[i][j]-12);
+                        notes_to_play_r.push_back(R_notesT[i][j]-12); 
+                    }
                 }
             } else if (bellow_prev == PULL && bellow == PUSH) {
                 if (R_press[i][j]) {
                     notes_to_remove_r.push_back(R_notesT[i][j]);
                     notes_to_play_r.push_back(R_notesP[i][j]);
+                    if(bassoon_enable){
+                        notes_to_remove_r.push_back(R_notesT[i][j]-12);
+                        notes_to_play_r.push_back(R_notesP[i][j]-12); 
+                    }
                 }
             }
             if (R_prev_press[i][j]) {
@@ -653,19 +740,31 @@ void loop()
                     if (bellow_not_null == PUSH || bellow_prev == PUSH)
                     {
                         notes_to_remove_r.push_back(R_notesP[i][j]);
+                        if(bassoon_enable){
+                            notes_to_remove_r.push_back(R_notesP[i][j]-12);
+                        }
                     }
                     if (bellow_not_null == PULL || bellow_prev == PULL)
                     {
                         notes_to_remove_r.push_back(R_notesT[i][j]);
+                        if(bassoon_enable){
+                            notes_to_remove_r.push_back(R_notesT[i][j]-12);
+                        }
                     }
                 }
             } else if (!R_prev_press[i][j]) { //Add notes
                 if (R_press[i][j]) {
                     if (bellow_not_null == PUSH) {
                         notes_to_play_r.push_back(R_notesP[i][j]);
+                        if(bassoon_enable){
+                             notes_to_play_r.push_back(R_notesP[i][j]-12);
+                        }
                     }
                     else {
                         notes_to_play_r.push_back(R_notesT[i][j]);
+                        if(bassoon_enable){
+                            notes_to_play_r.push_back(R_notesT[i][j]-12);
+                        }
                     }
                 }
             }
@@ -719,8 +818,8 @@ void loop()
     // Send MIDI message
     //-----------------------------------
     if(reverse_expr_volume){
-        volume_resolved=expression;
-        expression_resolved=volume;
+        volume_resolved = (expression>volume_attenuation) ? expression-volume_attenuation : 0;
+        expression_resolved = (volume != 0) ? volume+volume_attenuation : 0;
     } else {
         volume_resolved=volume;
         expression_resolved=expression;
@@ -728,44 +827,29 @@ void loop()
 
     //Right hand on channel 1
     while (!notes_to_remove_r.empty()) {
-        #ifndef DEBUG
-            MIDIUSB.sendNoteOff(notes_to_remove_r.back()+12*octave, 0, channel_rh);
-        #endif
-        MIDIPI.sendNoteOff(notes_to_remove_r.back()+12*octave, 0, channel_rh);
-
+        midi_broadcast_note_off(notes_to_remove_r.back()+12*octave, 0, channel_rh);
         notes_to_remove_r.pop_back();
     }
     while (!notes_to_play_r.empty()) {
-        #ifndef DEBUG
-            MIDIUSB.sendNoteOn(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
-        #endif
-        MIDIPI.sendNoteOn(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
+        midi_broadcast_note_on(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
         notes_to_play_r.pop_back();
     }
 
     //Left hand on channel 2
     while (!notes_to_remove_l.empty()) {
-        #ifndef DEBUG
-            MIDIUSB.sendNoteOff(notes_to_remove_l.back(), 0, channel_lh);
-        #endif
-        MIDIPI.sendNoteOff(notes_to_remove_l.back(), 0, channel_lh);
-
+        midi_broadcast_note_off(notes_to_remove_l.back(), 0, channel_lh);
         notes_to_remove_l.pop_back();
     }
     while (!notes_to_play_l.empty()) {
-        #ifndef DEBUG
-            MIDIUSB.sendNoteOn(notes_to_play_l.back(), expression_resolved, channel_lh);
-        #endif
-        MIDIPI.sendNoteOn(notes_to_play_l.back(), expression_resolved, channel_lh);
+        midi_broadcast_note_on(notes_to_play_l.back(), expression_resolved, channel_lh);
         notes_to_play_l.pop_back();
     }
 
     //Send Volume
     if (bellow != NOPUSH) {bellow_prev = bellow;}
     if(volume_prev!=volume_resolved){
-        #ifndef DEBUG
-            MIDIUSB.sendControlChange(7,volume_resolved, channel_rh);
-            MIDIUSB.sendControlChange(7,volume_resolved, channel_lh);
+        midi_broadcast_control_change(MIDI_CC_VOLUME, volume_resolved, channel_lh);
+        midi_broadcast_control_change(MIDI_CC_VOLUME, volume_resolved, channel_rh);
         #endif
         MIDIPI.sendControlChange(7,volume_resolved, channel_rh);
         MIDIPI.sendControlChange(7,volume_resolved, channel_lh);
