@@ -3,6 +3,9 @@
 //TODO : refactor code to use multiple files
 //TODO : refactor code to enable/disable functionnalities
 // Use midinote struct & fonctions ?
+//TODO : create preset for usecase (fully neutral, balanced output for Reaper/soundcard, preset for 'hit' instruments, preset for MT32 with correct channels, preset for headset)
+//TODO : Adjust volume depending on number of voices on RH
+
 
 #include "Arduino.h"
 
@@ -11,6 +14,11 @@
 #undef min
 
 // #define DEBUG
+#define DISABLE_MIDI_USB
+
+#ifdef DEBUG
+#define DISABLE_MIDI_USB
+#endif
 
 //-----------------------------------
 //Libs & header import
@@ -162,7 +170,7 @@ double p_tare;
 double p_offset;
 double T, P;
 long t_start;
-float min_pressure = 0.2;
+float min_pressure = 0.07;
 float max_pressure = 13;
 char bmp_status;
 bool waiting_t=0;
@@ -174,29 +182,41 @@ MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDIUSB);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDIPI);
 //Helper functions
 void midi_broadcast_control_change(uint8_t cc, uint8_t value, uint8_t channel) {
-    #ifndef DEBUG
+    #ifndef DISABLE_MIDI_USB
         MIDIUSB.sendControlChange(cc, value, channel);
     #endif
     MIDIPI.sendControlChange(cc, value, channel);
 }
 
 void midi_broadcast_program_change(uint8_t program, uint8_t channel) {
-    #ifndef DEBUG
+    #ifndef DISABLE_MIDI_USB
         MIDIUSB.sendProgramChange(program, channel);
     #endif
     MIDIPI.sendProgramChange(program, channel);
 }
 void midi_broadcast_note_on(uint8_t note, uint8_t expression, uint8_t channel) {
-    #ifndef DEBUG
+    #ifndef DISABLE_MIDI_USB
         MIDIUSB.sendNoteOn(note, expression, channel);
     #endif
     MIDIPI.sendNoteOn(note, expression, channel);
 }
 void midi_broadcast_note_off(uint8_t note, uint8_t expression, uint8_t channel) {
-    #ifndef DEBUG
+    #ifndef DISABLE_MIDI_USB
         MIDIUSB.sendNoteOff(note, expression, channel);
     #endif
     MIDIPI.sendNoteOff(note, expression, channel);
+}
+void midi_broadcast_send(midi::MidiType command, uint8_t msb, uint8_t lsb, uint8_t channel) {
+    #ifndef DISABLE_MIDI_USB
+        MIDIUSB.send(command, msb, lsb, channel);
+    #endif
+    MIDIPI.send(command, msb, lsb, channel);
+}
+void midi_broadcast_pitchbend(int pitchvalue, uint8_t channel) {
+    #ifndef DISABLE_MIDI_USB
+        MIDIUSB.sendPitchBend(pitchvalue, channel);
+    #endif
+    MIDIPI.sendPitchBend(pitchvalue, channel);
 }
 
 //-----------------------------------
@@ -212,10 +232,10 @@ uint8_t program_rh          = 0;
 uint8_t program_lh          = 1;
 uint8_t channel_rh          = 1;
 uint8_t channel_lh          = 2;
-uint8_t pano_rh             = 48;
-uint8_t pano_lh             = 52;
-uint8_t reverb_rh           = 32;
-uint8_t reverb_lh           = 32;
+uint8_t pano_rh             = 38;
+uint8_t pano_lh             = 42;
+uint8_t reverb_rh           = 8;
+uint8_t reverb_lh           = 8;
 uint8_t chorus_rh           = 4;
 uint8_t chorus_lh           = 0;
 bool    mt32_synth          = MT32_SOUNDFONT;
@@ -224,14 +244,18 @@ bool    dummy               = 0;
 bool    reverse_expr_volume = 0;
 bool    fifth_enable        = 1;
 bool    bassoon_enable      = 0;
-
+bool    picolo_enable       = 0;
+bool    flute_enable        = 1;
+int8_t  vibrato             = 0;
+int8_t  vibrato_prev        = 0;
+#define VIBRATO_CHANNEL       8
 
 result menu_midi_pano_change_rh() {
-    midi_broadcast_control_change(MIDI_CC_PAN,pano_rh, channel_rh);
+    midi_broadcast_control_change(MIDI_CC_BALANCE,pano_rh, channel_rh);
     return proceed;
 }
 result menu_midi_pano_change_lh() {
-    midi_broadcast_control_change(MIDI_CC_PAN,pano_lh, channel_lh);
+    midi_broadcast_control_change(MIDI_CC_BALANCE,pano_lh, channel_lh);
     return proceed;
 }
 result menu_midi_reverb_change_rh() {
@@ -266,6 +290,21 @@ result menu_midi_program_change_lh() {
     midi_broadcast_control_change(MIDI_CC_VOLUME, 0, channel_lh);
     return proceed;
 }
+
+result menu_midi_vibrato_pitch() {
+    midi_broadcast_program_change(program_rh, VIBRATO_CHANNEL);
+    // midi_broadcast_control_change(MIDI_CC_MODWHEEL, vibrato, VIBRATO_CHANNEL);
+    midi_broadcast_pitchbend(vibrato*64, VIBRATO_CHANNEL); //This is way better than modwheel
+
+    //Disable chorus
+    chorus_rh=0;
+    menu_midi_chorus_change_rh();
+    //Set balance for vibrato and silence it
+    midi_broadcast_control_change(MIDI_CC_BALANCE,pano_rh, VIBRATO_CHANNEL);
+    midi_broadcast_control_change(MIDI_CC_VOLUME, 0, VIBRATO_CHANNEL);
+    return proceed;
+}
+
 result menu_mt32_switch_rom_set() {
     mt32_switch_rom_set(mt32_rom_set, MIDIPI);
     return proceed;
@@ -333,18 +372,33 @@ MENU(debug_config, "Debug menu", doNothing, noEvent, wrapStyle
      , SUBMENU(pressurectrl) //for some reason, menu must have at least 2 elements
     );
 //Keyboard layout submenu TODO
-TOGGLE(octave, octavectrl, "Octaved : ", doNothing, noEvent, noStyle
+TOGGLE(octave, octavectrl,          "Octaved : ", doNothing, noEvent, noStyle
        , VALUE("-2", -2, doNothing, noEvent)
        , VALUE("-1", -1, doNothing, noEvent)
        , VALUE("2", 2, doNothing, noEvent)
        , VALUE("1", 1, doNothing, noEvent)
        , VALUE("0", 0, doNothing, noEvent)
       );
-TOGGLE(fifth_enable, fifthctrl, "Fifth : ", doNothing, noEvent, noStyle
+TOGGLE(fifth_enable, fifthctrl,     "Fifth   : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
+TOGGLE(vibrato, pitchctrl,          "Pitch   : ", doNothing, noEvent, noStyle
+       , VALUE("8", 8, menu_midi_vibrato_pitch, noEvent)
+       , VALUE("4", 4, menu_midi_vibrato_pitch, noEvent)
+       , VALUE("2", 2, menu_midi_vibrato_pitch, noEvent)
+       , VALUE("1", 1, menu_midi_vibrato_pitch, noEvent)
+       , VALUE("None", 0, menu_midi_vibrato_pitch, noEvent)
+      );
 TOGGLE(bassoon_enable, bassoonctrl, "Bassoon : ", doNothing, noEvent, noStyle
+       , VALUE("ON", HIGH, doNothing, noEvent)
+       , VALUE("OFF", LOW, doNothing, noEvent)
+      );
+TOGGLE(picolo_enable, picoloctrl,   "Picolo  : ", doNothing, noEvent, noStyle
+       , VALUE("ON", HIGH, doNothing, noEvent)
+       , VALUE("OFF", LOW, doNothing, noEvent)
+      );
+TOGGLE(flute_enable, flutectrl,     "Flute   : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
@@ -352,6 +406,9 @@ MENU(keyboard_config, "Keyboard config", doNothing, noEvent, wrapStyle
      , SUBMENU(octavectrl)
      , SUBMENU(fifthctrl)
      , SUBMENU(bassoonctrl)
+     , SUBMENU(flutectrl)
+     , SUBMENU(picoloctrl)
+     , SUBMENU(pitchctrl)
     );
 
 //Main menu
@@ -420,7 +477,8 @@ uint8_t compute_volume(float x){
     } else if (pressuremode==1) {
         return uint8_t((pow(x,2.1)+245)/5+2*x) ;
     } else if (pressuremode==2) {
-        return uint8_t(0.1*pow(x-6,3)+x+79) ;
+        // return uint8_t(0.1*pow(x-6,3)+x+79) ;
+        return uint8_t(0.1*pow(x-7,3)+2*x+79) ;
     } else { // if (pressuremode==3) {
         //0.07579105*x*x*x-2.00077888*x*x+22.258*x+4.993545
         return uint8_t(0.07579105*x*x*x-2.00077888*x*x+22.258*x+4.993545) ;
@@ -456,6 +514,41 @@ void remap_left_keys(uint32_t key_in, uint8_t* out_array){
     out_array[3] |= ((key_in&(0x1 <<  1)) ?  0x1<<3 : 0 );
     out_array[3] |= ((key_in&(0x1 <<  3)) ?  0x1<<4 : 0 );
     out_array[3] |= ((key_in&(0x1 <<  8)) ?  0x1<<5 : 0 );
+}
+
+//###############################################
+//Presets
+//###############################################
+#define TOGGLE_BASSOON 0
+#define TOGGLE_FLUTE   1
+#define TOGGLE_PICCOLO 2
+#define TOGGLE_VIBRATO 3
+
+void set_preset(uint8_t preset){
+    switch (preset) {
+        case TOGGLE_BASSOON:
+            bassoon_enable=!bassoon_enable;
+            break;
+        case TOGGLE_FLUTE:
+            flute_enable=!flute_enable;
+            break;
+        case TOGGLE_PICCOLO:
+            picolo_enable=!picolo_enable;
+            break;
+        case TOGGLE_VIBRATO:
+            if(vibrato){ //Remove vibrato
+                vibrato_prev=vibrato;
+                vibrato=0;
+            } else if (vibrato==0 && vibrato_prev==0) { //Add vibrato from 0
+                vibrato=2;
+            } else {
+                vibrato=vibrato_prev;
+            }
+            menu_midi_vibrato_pitch();
+            break;
+        default:
+            break;
+    }
 }
 
 //###############################################
@@ -685,27 +778,67 @@ void loop()
         }
     }
     //-----------------------------------
-    //Menu navigation
+    //Menu navigation & presets
     //-----------------------------------
     //For some reason, going low on a FIELD crash the menu, try to avoid it
     if(digitalRead(KEY_MENU)) {
         if (R_press[1][9] && ! R_prev_press[1][9]) {
-            strIn.write('-');
+            strIn.write('+'); //Up
             nav.doInput(strIn);
         }
         if (R_press[1][10] && ! R_prev_press[1][10]) {
-            strIn.write('+');
+            strIn.write('-'); //Down
             nav.doInput(strIn);
-        } 
+        }
         if (R_press[2][9] && ! R_prev_press[2][9]) {
-            strIn.write('/');
+            strIn.write('/'); //Prev
             nav.doInput(strIn);
-        } 
+        }
         if (R_press[0][9] && ! R_prev_press[0][9]) {
-            strIn.write('*');
+            strIn.write('*'); //Next
             nav.doInput(strIn);
         }
         nav.poll();
+        //Presets
+        if (R_press[2][8] && ! R_prev_press[2][8]) {
+            set_preset(TOGGLE_BASSOON);
+        }
+        if (R_press[2][7] && ! R_prev_press[2][7]) {
+            set_preset(TOGGLE_VIBRATO);
+        }
+        if (R_press[2][6] && ! R_prev_press[2][6]) {
+            set_preset(TOGGLE_PICCOLO);
+        }
+        if (R_press[2][5] && ! R_prev_press[2][5]) {
+            set_preset(TOGGLE_FLUTE);
+        }
+
+        if(!debug_oled){
+            oled.setCursor((128-2*fontW), 0);
+            if(bassoon_enable){
+                oled.print("B");
+            } else {
+                oled.print(" ");
+            }
+            oled.setCursor((128-2*fontW), 1);
+            if(vibrato!=0){
+                oled.print("V");
+            } else {
+                oled.print(" ");
+            }
+            oled.setCursor((128-2*fontW), 2);
+            if(picolo_enable){
+                oled.print("P");
+            } else {
+                oled.print(" ");
+            }
+            oled.setCursor((128-2*fontW), 3);
+            if(flute_enable){
+                oled.print("F");
+            } else {
+                oled.print(" ");
+            }
+        }
     }
 
 
@@ -713,6 +846,7 @@ void loop()
     // Prepare MIDI message
     //-----------------------------------
     //Right hand
+    if(!digitalRead(KEY_MENU)) {
     for (size_t i = 0; i < COLUMN_NUMBER_R; i++) {
         for (size_t j = 0; j < ROW_NUMBER_R; j++) {
             //Add and remove note depending on bellow direction and previous direction
@@ -720,19 +854,11 @@ void loop()
                 if (R_press[i][j]) {
                     notes_to_remove_r.push_back(R_notesP[i][j]);
                     notes_to_play_r.push_back(R_notesT[i][j]);
-                    if(bassoon_enable){
-                        notes_to_remove_r.push_back(R_notesP[i][j]-12);
-                        notes_to_play_r.push_back(R_notesT[i][j]-12); 
-                    }
                 }
             } else if (bellow_prev == PULL && bellow == PUSH) {
                 if (R_press[i][j]) {
                     notes_to_remove_r.push_back(R_notesT[i][j]);
                     notes_to_play_r.push_back(R_notesP[i][j]);
-                    if(bassoon_enable){
-                        notes_to_remove_r.push_back(R_notesT[i][j]-12);
-                        notes_to_play_r.push_back(R_notesP[i][j]-12); 
-                    }
                 }
             }
             if (R_prev_press[i][j]) {
@@ -740,31 +866,19 @@ void loop()
                     if (bellow_not_null == PUSH || bellow_prev == PUSH)
                     {
                         notes_to_remove_r.push_back(R_notesP[i][j]);
-                        if(bassoon_enable){
-                            notes_to_remove_r.push_back(R_notesP[i][j]-12);
-                        }
                     }
                     if (bellow_not_null == PULL || bellow_prev == PULL)
                     {
                         notes_to_remove_r.push_back(R_notesT[i][j]);
-                        if(bassoon_enable){
-                            notes_to_remove_r.push_back(R_notesT[i][j]-12);
-                        }
                     }
                 }
             } else if (!R_prev_press[i][j]) { //Add notes
                 if (R_press[i][j]) {
                     if (bellow_not_null == PUSH) {
                         notes_to_play_r.push_back(R_notesP[i][j]);
-                        if(bassoon_enable){
-                             notes_to_play_r.push_back(R_notesP[i][j]-12);
-                        }
                     }
                     else {
                         notes_to_play_r.push_back(R_notesT[i][j]);
-                        if(bassoon_enable){
-                            notes_to_play_r.push_back(R_notesT[i][j]-12);
-                        }
                     }
                 }
             }
@@ -803,7 +917,7 @@ void loop()
             }
         }
     }
-
+    }
 
     //Uniquify the list to minimize number of message
     notes_to_play_r.sort();
@@ -827,11 +941,33 @@ void loop()
 
     //Right hand on channel 1
     while (!notes_to_remove_r.empty()) {
-        midi_broadcast_note_off(notes_to_remove_r.back()+12*octave, 0, channel_rh);
+        if (bassoon_enable) {
+            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave-12, 0, channel_rh);
+        }
+        if (picolo_enable) {
+            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave+12, 0, channel_rh);
+        }
+        if (vibrato!=0) {
+            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave, 0, VIBRATO_CHANNEL);
+        }
+        if (flute_enable!=0) {
+            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave, 0, channel_rh);
+        }
         notes_to_remove_r.pop_back();
     }
     while (!notes_to_play_r.empty()) {
-        midi_broadcast_note_on(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
+        if (bassoon_enable) {
+            midi_broadcast_note_on(notes_to_play_r.back()+12*octave-12, expression_resolved, channel_rh);
+        }
+        if (picolo_enable) {
+            midi_broadcast_note_on(notes_to_play_r.back()+12*octave+12, expression_resolved, channel_rh);
+        }
+        if (vibrato!=0) {
+            midi_broadcast_note_on(notes_to_play_r.back()+12*octave, expression_resolved, VIBRATO_CHANNEL);
+        }
+        if (flute_enable!=0) {
+            midi_broadcast_note_on(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
+        }
         notes_to_play_r.pop_back();
     }
 
@@ -850,9 +986,9 @@ void loop()
     if(volume_prev!=volume_resolved){
         midi_broadcast_control_change(MIDI_CC_VOLUME, volume_resolved, channel_lh);
         midi_broadcast_control_change(MIDI_CC_VOLUME, volume_resolved, channel_rh);
-        #endif
-        MIDIPI.sendControlChange(7,volume_resolved, channel_rh);
-        MIDIPI.sendControlChange(7,volume_resolved, channel_lh);
+        if(vibrato!=0){
+            midi_broadcast_control_change(MIDI_CC_VOLUME, volume_resolved, VIBRATO_CHANNEL);
+        }
     }
     volume_prev=volume_resolved;
 
@@ -873,7 +1009,7 @@ void loop()
         }
         oled.print(str_oled);
         for (uint8_t i = 0; i < 128/fontW ; i++) {
-            str_oled[i] = ' ';
+            str_oled[i] = '\0';
         }
         //Keyboard right hand
         for (uint8_t i = 0; i < COLUMN_NUMBER_R; i++) {

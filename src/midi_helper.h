@@ -77,10 +77,11 @@
 #define OCTAVE       12
 
 //Control change def
+#define MIDI_CC_MODWHEEL   1
 #define MIDI_CC_VOLUME     7
 #define MIDI_CC_BALANCE    8
-#define MIDI_CC_PAN        9
-#define MIDI_CC_EXPRESSION 10
+#define MIDI_CC_PAN        10
+#define MIDI_CC_EXPRESSION 11
 #define MIDI_CC_REVERB     91
 #define MIDI_CC_CHORUS     93
 
