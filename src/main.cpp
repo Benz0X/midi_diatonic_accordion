@@ -13,8 +13,15 @@
 #undef max
 #undef min
 
+//This allow to switch between darwin style left hand (24 buttons, same sound on pull/pull) and traditionnal 18 basses layout
+#define DARWIN
+
+// Use to send some info on UART, this will disable MIDI over USB (as it is used for UART)
 // #define DEBUG
+
+// This disable sending MIDI message over USB (messages will only be sent to the serial out to the RPI) This speed up a little the loop
 #define DISABLE_MIDI_USB
+
 
 #ifdef DEBUG
 #define DISABLE_MIDI_USB
@@ -111,18 +118,6 @@ uint8_t R_notesP[COLUMN_NUMBER_R][ROW_NUMBER_R] = {
         {mid_E3  , mid_G3  , mid_C4  , mid_E4  , mid_G4  , mid_C5  , mid_E5  , mid_G5  , mid_C6  , mid_E6  , mid_G6  }, //2nd row
         {mid_A3-1, mid_B3-1, mid_E4-1, mid_A4-1, mid_B4-1, mid_E5-1, mid_A5-1, mid_B5-1, mid_E6-1, mid_A6-1, mid_B6-1}};//3rd row
 
-//Notes definitions for left hand (no push/pull distinction as the keyboard layout is a Serafini Darwin whith same sound in push and pull)
-uint8_t L_notes[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
-        {mid_D3+1, mid_F3  , mid_G3  , mid_A3  , mid_B3  , mid_C3+1 }, //1rst row
-        {mid_A3+1, mid_C3  , mid_D3  , mid_E3  , mid_F3+1, mid_G3+1 }, //2nd row
-        {mid_D4+1, mid_F4  , mid_G4  , mid_A4  , mid_B4  , mid_C4+1 }, //3nd row
-        {mid_A4+1, mid_C4  , mid_D4  , mid_E4  , mid_F4+1, mid_G4+1 }};//4rd row
-//Fifth definitions for left hand (so we can build our own fifth chords)
-uint8_t L_notes_fifth[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
-        {0       , 0       , 0       , 0       , 0       , 0        }, //1rst row
-        {0       , 0       , 0       , 0       , 0       , 0        }, //2nd row
-        {mid_A4+1, mid_C4  , mid_D4  , mid_E4  , mid_F4+1, mid_G4+1 }, //3nd row
-        {mid_F4  , mid_G4  , mid_A4  , mid_B4  , mid_C4+1, mid_D4+1 }};//4rd row
 
 //Variation for BC, add 4 semitone to 1rst ROW
     // uint8_t R_notesT[COLUMN_NUMBER_R][ROW_NUMBER_R] = {
@@ -134,6 +129,48 @@ uint8_t L_notes_fifth[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
     // 	 	{mid_E3, mid_G3, mid_C4, mid_E4, mid_G4, mid_C5, mid_E5, mid_G5, mid_C6, mid_E6, mid_G6},
     // 	 	{mid_A3-1, mid_B3-1, mid_E4-1, mid_A4-1, mid_B4-1, mid_E5-1, mid_A5-1, mid_B5-1, mid_E6-1, mid_A6-1, mid_B6-1}};
 
+
+//Notes definitions for left hand (no push/pull distinction as the keyboard layout is a Serafini Darwin whith same sound in push and pull)
+#ifdef DARWIN
+uint8_t L_notesT[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
+        {mid_D3+1, mid_F3  , mid_G3  , mid_A3  , mid_B3  , mid_C3+1 }, //1rst row
+        {mid_A3+1, mid_C3  , mid_D3  , mid_E3  , mid_F3+1, mid_G3+1 }, //2nd row
+        {mid_D4+1, mid_F4  , mid_G4  , mid_A4  , mid_B4  , mid_C4+1 }, //3nd row
+        {mid_A4+1, mid_C4  , mid_D4  , mid_E4  , mid_F4+1, mid_G4+1 }};//4rd row
+//Fifth definitions for left hand (so we can build our own fifth chords)
+uint8_t L_notes_fifthT[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
+        {0       , 0       , 0       , 0       , 0       , 0        }, //1rst row
+        {0       , 0       , 0       , 0       , 0       , 0        }, //2nd row
+        {mid_A4+1, mid_C4  , mid_D4  , mid_E4  , mid_F4+1, mid_G4+1 }, //3nd row
+        {mid_F4  , mid_G4  , mid_A4  , mid_B4  , mid_C4+1, mid_D4+1 }};//4rd row
+//Ugly way to assign P to T as push pull is the same in darwin, this save a little memory
+uint8_t (*L_notesP)[ROW_NUMBER_L]       = L_notesT;
+uint8_t (*L_notes_fifthP)[ROW_NUMBER_L] = L_notes_fifthT;
+#else
+uint8_t L_notesT[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
+        {0       , 0       , 0       , 0       , 0       , 0        }, //1rst row
+        {mid_C3  , mid_E3  , mid_G3+1, mid_F3+1, mid_C3+1, mid_D3+1 }, //2nd row
+        {mid_F3  , mid_F4  , mid_A3  , mid_A4  , mid_A3+1, mid_A4+1 }, //3nd row
+        {mid_G3  , mid_G4  , mid_D3  , mid_D4  , mid_B3  , mid_B4   }};//4rd row
+//Fifth definitions for left hand (so we can build our own fifth chords)
+uint8_t L_notes_fifthT[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
+        {0       , 0       , 0       , 0       , 0       , 0        }, //1rst row
+        {0       , 0       , 0       , 0       , 0       , 0        }, //2nd row
+        {0       , mid_C4  , 0       , mid_E4  , 0       , mid_F4   }, //3nd row
+        {0       , mid_D4  , 0       , mid_A4  , 0       , mid_F4+1 }};//4rd row
+uint8_t L_notesP[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
+        {0       , 0       , 0       , 0       , 0       , 0        }, //1rst row
+        {mid_D3  , mid_A3  , mid_B3  , mid_F3+1, mid_C3+1, mid_A3+1 }, //2nd row
+        {mid_F3  , mid_F4  , mid_E3  , mid_E4  , mid_D3+1, mid_D4+1 }, //3nd row
+        {mid_C3  , mid_C4  , mid_G3  , mid_G4  , mid_G3+1, mid_G4+1 }};//4rd row
+//Fifth definitions for left hand (so we can build our own fifth chords)
+uint8_t L_notes_fifthP[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
+        {0       , 0       , 0       , 0       , 0       , 0        }, //1rst row
+        {0       , 0       , 0       , 0       , 0       , 0        }, //2nd row
+        {0       , mid_C4  , 0       , mid_B4  , 0       , mid_A4+1 }, //3nd row
+        {0       , mid_G4  , 0       , mid_D4  , 0       , mid_D4+1 }};//4rd row
+
+#endif
 
 //Useful lists
 std::list<int> notes_to_play_r  ;
@@ -847,76 +884,102 @@ void loop()
     //-----------------------------------
     //Right hand
     if(!digitalRead(KEY_MENU)) {
-    for (size_t i = 0; i < COLUMN_NUMBER_R; i++) {
-        for (size_t j = 0; j < ROW_NUMBER_R; j++) {
-            //Add and remove note depending on bellow direction and previous direction
-            if (bellow_prev == PUSH && bellow == PULL) {
-                if (R_press[i][j]) {
-                    notes_to_remove_r.push_back(R_notesP[i][j]);
-                    notes_to_play_r.push_back(R_notesT[i][j]);
-                }
-            } else if (bellow_prev == PULL && bellow == PUSH) {
-                if (R_press[i][j]) {
-                    notes_to_remove_r.push_back(R_notesT[i][j]);
-                    notes_to_play_r.push_back(R_notesP[i][j]);
-                }
-            }
-            if (R_prev_press[i][j]) {
-                if (!R_press[i][j]) { //remove note if touch isn't pressed anymore
-                    if (bellow_not_null == PUSH || bellow_prev == PUSH)
-                    {
+        for (size_t i = 0; i < COLUMN_NUMBER_R; i++) {
+            for (size_t j = 0; j < ROW_NUMBER_R; j++) {
+                //Add and remove note depending on bellow direction and previous direction
+                if (bellow_prev == PUSH && bellow == PULL) {
+                    if (R_press[i][j]) {
                         notes_to_remove_r.push_back(R_notesP[i][j]);
-                    }
-                    if (bellow_not_null == PULL || bellow_prev == PULL)
-                    {
-                        notes_to_remove_r.push_back(R_notesT[i][j]);
-                    }
-                }
-            } else if (!R_prev_press[i][j]) { //Add notes
-                if (R_press[i][j]) {
-                    if (bellow_not_null == PUSH) {
-                        notes_to_play_r.push_back(R_notesP[i][j]);
-                    }
-                    else {
                         notes_to_play_r.push_back(R_notesT[i][j]);
                     }
+                } else if (bellow_prev == PULL && bellow == PUSH) {
+                    if (R_press[i][j]) {
+                        notes_to_remove_r.push_back(R_notesT[i][j]);
+                        notes_to_play_r.push_back(R_notesP[i][j]);
+                    }
+                }
+                if (R_prev_press[i][j]) {
+                    if (!R_press[i][j]) { //remove note if touch isn't pressed anymore
+                        if (bellow_not_null == PUSH || bellow_prev == PUSH)
+                        {
+                            notes_to_remove_r.push_back(R_notesP[i][j]);
+                        }
+                        if (bellow_not_null == PULL || bellow_prev == PULL)
+                        {
+                            notes_to_remove_r.push_back(R_notesT[i][j]);
+                        }
+                    }
+                } else if (!R_prev_press[i][j]) { //Add notes
+                    if (R_press[i][j]) {
+                        if (bellow_not_null == PUSH) {
+                            notes_to_play_r.push_back(R_notesP[i][j]);
+                        }
+                        else {
+                            notes_to_play_r.push_back(R_notesT[i][j]);
+                        }
+                    }
                 }
             }
         }
-    }
 
-    //Left hand
-    for (size_t i = 0; i < COLUMN_NUMBER_L; i++) {
-        for (size_t j = 0; j < ROW_NUMBER_L; j++) {
-            //Restart notes if bellow change direction
-            if (bellow_prev != bellow) {
-                if (L_press[i][j]) {
-                    notes_to_remove_l.push_back(L_notes[i][j]);
-                    notes_to_play_l.push_back(L_notes[i][j]);
-                    if (fifth_enable) {
-                        notes_to_remove_l.push_back(L_notes_fifth[i][j]);
-                        notes_to_play_l.push_back(L_notes_fifth[i][j]);
+        //Left hand
+        for (size_t i = 0; i < COLUMN_NUMBER_L; i++) {
+            for (size_t j = 0; j < ROW_NUMBER_L; j++) {
+                //Add and remove note depending on bellow direction and previous direction
+                if (bellow_prev == PUSH && bellow == PULL) {
+                    if (L_press[i][j]) {
+                        notes_to_remove_l.push_back(L_notesP[i][j]);
+                        notes_to_play_l.push_back(L_notesT[i][j]);
+                        if (fifth_enable) {
+                            notes_to_remove_l.push_back(L_notes_fifthP[i][j]);
+                            notes_to_play_l.push_back(L_notes_fifthT[i][j]);
+                        }
+                    }
+                } else if (bellow_prev == PULL && bellow == PUSH) {
+                    if (L_press[i][j]) {
+                        notes_to_remove_l.push_back(L_notesT[i][j]);
+                        notes_to_play_l.push_back(L_notesP[i][j]);
+                        if (fifth_enable) {
+                            notes_to_remove_l.push_back(L_notes_fifthT[i][j]);
+                            notes_to_play_l.push_back(L_notes_fifthP[i][j]);
+                        }
                     }
                 }
-            }
-            //Add and remove note depending on bellow direction and previous direction
-            if (L_prev_press[i][j]) {
-                if (!L_press[i][j]) { //remove note if touch isn't pressed anymore
-                    notes_to_remove_l.push_back(L_notes[i][j]);
-                    if (fifth_enable) {
-                        notes_to_remove_l.push_back(L_notes_fifth[i][j]);
+                if (L_prev_press[i][j]) {
+                    if (!L_press[i][j]) { //remove note if touch isn't pressed anymore
+                        if (bellow_not_null == PUSH || bellow_prev == PUSH)
+                        {
+                            notes_to_remove_l.push_back(L_notesP[i][j]);
+                            if (fifth_enable) {
+                                notes_to_remove_l.push_back(L_notes_fifthP[i][j]);
+                            }
+                        }
+                        if (bellow_not_null == PULL || bellow_prev == PULL)
+                        {
+                            notes_to_remove_l.push_back(L_notesT[i][j]);
+                            if (fifth_enable) {
+                                notes_to_remove_l.push_back(L_notes_fifthT[i][j]);
+                            }
+                        }
                     }
-                }
-            } else if (!L_prev_press[i][j]) { //Add notes
-                if (L_press[i][j]) {
-                    notes_to_play_l.push_back(L_notes[i][j]);
-                    if (fifth_enable) {
-                        notes_to_play_l.push_back(L_notes_fifth[i][j]);
+                } else if (!L_prev_press[i][j]) { //Add notes
+                    if (L_press[i][j]) {
+                        if (bellow_not_null == PUSH) {
+                            notes_to_play_l.push_back(L_notesP[i][j]);
+                            if (fifth_enable) {
+                                notes_to_play_l.push_back(L_notes_fifthP[i][j]);
+                            }
+                        }
+                        else {
+                            notes_to_play_l.push_back(L_notesT[i][j]);
+                            if (fifth_enable) {
+                                notes_to_play_l.push_back(L_notes_fifthT[i][j]);
+                            }
+                        }
                     }
                 }
             }
         }
-    }
     }
 
     //Uniquify the list to minimize number of message
