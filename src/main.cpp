@@ -575,11 +575,12 @@ void remap_left_keys(uint32_t key_in, uint8_t* out_array){
 
 //This function will ensure basses notes stay in the basses range, and same for chords notes, usefull during transpose
 uint8_t transpose_left_hand(uint8_t note_in, uint8_t transpose) {
-    if (note_in<mid_C4) { //Bass
+    if (note_in<mid_C4 && note_in>=mid_C3 ) { //Bass
         return (note_in+transpose)%12+mid_C3;
-    } else {
+    } else if(note_in>=mid_C4 && note_in<mid_C5){
         return (note_in+transpose)%12+mid_C4;
     }
+    return note_in;
 }
 
 //###############################################
@@ -988,7 +989,7 @@ void loop()
     }
     //Then we add the notes
     for (int i = 0; i < sizeof(R_played_note); ++i) {
-        if (R_played_note[i] && !R_played_note_prev[i]) {
+        if (R_played_note[i] && (!R_played_note_prev[i] || bellow_not_null != bellow_prev)) { //We must also relaunch note if bellow changed direction
             if (bassoon_enable) {
                 midi_broadcast_note_on(i+12*octave-12, expression_resolved, channel_rh);
             }
@@ -1002,7 +1003,7 @@ void loop()
     }
     //Again, we do vibrato separatedly even if it duplicates a lot of code
     for (int i = 0; i < sizeof(R_played_note); ++i) {
-        if (!R_played_note[i] && R_played_note_prev[i]) {
+        if (R_played_note[i] && (!R_played_note_prev[i] || bellow_not_null != bellow_prev)) { //We must also relaunch note if bellow changed direction
             if (vibrato!=0) {
                 midi_broadcast_note_on(i+12*octave, expression_resolved, VIBRATO_CHANNEL);
             }
@@ -1018,7 +1019,7 @@ void loop()
         }
     }
     for (int i = 0; i < sizeof(L_played_note); ++i) {
-        if (L_played_note[i] && !L_played_note_prev[i]) {
+        if (L_played_note[i] && (!L_played_note_prev[i] || bellow_not_null != bellow_prev)) {
             midi_broadcast_note_on(i, expression_resolved, channel_lh);
         }
     }
