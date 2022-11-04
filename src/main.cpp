@@ -1,11 +1,13 @@
 /* Diatonic accordion midi project */
-//TODO : change key->midi handling (if a key should be played, add 1 to it's value and play it if the value is >0)
 //TODO : refactor code to use multiple files
 //TODO : refactor code to enable/disable functionnalities
 // Use midinote struct & fonctions ?
 //TODO : create preset for usecase (fully neutral, balanced output for Reaper/soundcard, preset for 'hit' instruments, preset for MT32 with correct channels, preset for headset)
 //TODO : Adjust volume depending on number of voices on RH
-
+//TODO : try to compress the code by using NoteOn with zero velocity instead of NoteOff (this suppose MIDI Running Status is used)
+//TODO : some glitch still appear when doing octaves on RH with bassoon or picolo are enabled with flute.
+//             Option 1 : treat bassoon and piccolo with different channels,
+//             Option 2 : use a separate R_played_notes/prev: one for vibrato and flute/bassoon/picolo
 
 #include "Arduino.h"
 
@@ -107,6 +109,14 @@ bool L_press[COLUMN_NUMBER_L][ROW_NUMBER_L];
 bool R_prev_press[COLUMN_NUMBER_R][ROW_NUMBER_R];
 bool L_prev_press[COLUMN_NUMBER_L][ROW_NUMBER_L];
 
+//Contains notes to play, this use a bit more memory than using lists with not to play/remove but Arduino Due can afford it and it prevent glitchs when same note is played several time
+uint8_t R_played_note[mid_B9];      //RH won't go higher than B9
+uint8_t R_played_note_prev[mid_B9]; //RH won't go higher than B9
+
+uint8_t L_played_note[mid_B6];      //LH won't go higher then B6
+uint8_t L_played_note_prev[mid_B6]; //LH won't go higher then B6
+
+
 //Notes definitions for pull
 uint8_t R_notesT[COLUMN_NUMBER_R][ROW_NUMBER_R] = {
         {mid_F3+1, mid_A3  , mid_C4, mid_E4  , mid_F4+1, mid_A4  , mid_C5  , mid_E5  , mid_F5+1, mid_G5  , mid_C6  }, //1rst row
@@ -121,13 +131,13 @@ uint8_t R_notesP[COLUMN_NUMBER_R][ROW_NUMBER_R] = {
 
 //Variation for BC, add 4 semitone to 1rst ROW
     // uint8_t R_notesT[COLUMN_NUMBER_R][ROW_NUMBER_R] = {
-    // 		{mid_F3+1+4, mid_A3+4, mid_C4+4, mid_E4+4, mid_F4+1+4, mid_A4+4, mid_C5+4, mid_E5+4, mid_F5+1+4, mid_G5+4, mid_C6+4},
-    // 	 	{mid_G3, mid_B3, mid_D4, mid_F4, mid_A4, mid_B4, mid_D5, mid_F5, mid_A5, mid_B5, mid_D6},
-    // 	 	{mid_B3-1, mid_C4+1, mid_G4, mid_A4-1, mid_B4-1, mid_C5+1, mid_E5-1, mid_A5-1, mid_B5-1, mid_C6+1, mid_E6-1}};
+    //    {mid_F3+1+4, mid_A3+4, mid_C4+4, mid_E4+4, mid_F4+1+4, mid_A4+4, mid_C5+4, mid_E5+4, mid_F5+1+4, mid_G5+4, mid_C6+4},
+    //    {mid_G3, mid_B3, mid_D4, mid_F4, mid_A4, mid_B4, mid_D5, mid_F5, mid_A5, mid_B5, mid_D6},
+    //    {mid_B3-1, mid_C4+1, mid_G4, mid_A4-1, mid_B4-1, mid_C5+1, mid_E5-1, mid_A5-1, mid_B5-1, mid_C6+1, mid_E6-1}};
     // uint8_t R_notesP[COLUMN_NUMBER_R][ROW_NUMBER_R] = {
-    // 		{mid_D3+4, mid_G3+4, mid_B3+4, mid_D4+4, mid_G4+4, mid_B4+4, mid_D5+4, mid_G5+4, mid_B5+4, mid_D6+4, mid_G6+4},
-    // 	 	{mid_E3, mid_G3, mid_C4, mid_E4, mid_G4, mid_C5, mid_E5, mid_G5, mid_C6, mid_E6, mid_G6},
-    // 	 	{mid_A3-1, mid_B3-1, mid_E4-1, mid_A4-1, mid_B4-1, mid_E5-1, mid_A5-1, mid_B5-1, mid_E6-1, mid_A6-1, mid_B6-1}};
+    //    {mid_D3+4, mid_G3+4, mid_B3+4, mid_D4+4, mid_G4+4, mid_B4+4, mid_D5+4, mid_G5+4, mid_B5+4, mid_D6+4, mid_G6+4},
+    //    {mid_E3, mid_G3, mid_C4, mid_E4, mid_G4, mid_C5, mid_E5, mid_G5, mid_C6, mid_E6, mid_G6},
+    //    {mid_A3-1, mid_B3-1, mid_E4-1, mid_A4-1, mid_B4-1, mid_E5-1, mid_A5-1, mid_B5-1, mid_E6-1, mid_A6-1, mid_B6-1}};
 
 
 //Notes definitions for left hand (no push/pull distinction as the keyboard layout is a Serafini Darwin whith same sound in push and pull)
@@ -171,12 +181,6 @@ uint8_t L_notes_fifthP[COLUMN_NUMBER_L][ROW_NUMBER_L] = {
         {0       , mid_G4  , 0       , mid_D4  , 0       , mid_D4+1 }};//4rd row
 
 #endif
-
-//Useful lists
-std::list<int> notes_to_play_r  ;
-std::list<int> notes_to_play_l  ;
-std::list<int> notes_to_remove_r;
-std::list<int> notes_to_remove_l;
 
 //MCP23X17
 #define MCP23017_ADDRESS 0x20
@@ -285,6 +289,7 @@ bool    picolo_enable       = 0;
 bool    flute_enable        = 1;
 int8_t  vibrato             = 0;
 int8_t  vibrato_prev        = 0;
+int8_t  transpose           = 0;
 #define VIBRATO_CHANNEL       8
 
 result menu_midi_pano_change_rh() {
@@ -439,6 +444,20 @@ TOGGLE(flute_enable, flutectrl,     "Flute   : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
+TOGGLE(transpose, transposectrl,    "Key     : ", doNothing, noEvent, noStyle
+       , VALUE("G/C",   0,  doNothing, noEvent)
+       , VALUE("G#/C#", 1,  doNothing, noEvent)
+       , VALUE("A/D",   2,  doNothing, noEvent)
+       , VALUE("Bb/Eb", 3,  doNothing, noEvent)
+       , VALUE("B/E",   4,  doNothing, noEvent)
+       , VALUE("C/F",   5,  doNothing, noEvent)
+       , VALUE("C#/F#", 6,  doNothing, noEvent)
+       , VALUE("D/G",   7,  doNothing, noEvent)
+       , VALUE("Eb/Ab", 8,  doNothing, noEvent)
+       , VALUE("E/A",   9,  doNothing, noEvent)
+       , VALUE("F/Bb",  10, doNothing, noEvent)
+       , VALUE("F#/B",  11, doNothing, noEvent)
+      );
 MENU(keyboard_config, "Keyboard config", doNothing, noEvent, wrapStyle
      , SUBMENU(octavectrl)
      , SUBMENU(fifthctrl)
@@ -446,6 +465,7 @@ MENU(keyboard_config, "Keyboard config", doNothing, noEvent, wrapStyle
      , SUBMENU(flutectrl)
      , SUBMENU(picoloctrl)
      , SUBMENU(pitchctrl)
+     , SUBMENU(transposectrl)
     );
 
 //Main menu
@@ -551,6 +571,15 @@ void remap_left_keys(uint32_t key_in, uint8_t* out_array){
     out_array[3] |= ((key_in&(0x1 <<  1)) ?  0x1<<3 : 0 );
     out_array[3] |= ((key_in&(0x1 <<  3)) ?  0x1<<4 : 0 );
     out_array[3] |= ((key_in&(0x1 <<  8)) ?  0x1<<5 : 0 );
+}
+
+//This function will ensure basses notes stay in the basses range, and same for chords notes, usefull during transpose
+uint8_t transpose_left_hand(uint8_t note_in, uint8_t transpose) {
+    if (note_in<mid_C4) { //Bass
+        return (note_in+transpose)%12+mid_C3;
+    } else {
+        return (note_in+transpose)%12+mid_C4;
+    }
 }
 
 //###############################################
@@ -666,6 +695,11 @@ void setup()
     //init some variable
     memset(R_prev_press, 0, sizeof(R_prev_press));
     memset(L_prev_press, 0, sizeof(L_prev_press));
+    memset(R_played_note,      0, sizeof(R_played_note     ));
+    memset(R_played_note_prev, 0, sizeof(R_played_note_prev));
+    memset(L_played_note,      0, sizeof(L_played_note     ));
+    memset(L_played_note_prev, 0, sizeof(L_played_note_prev));
+
     volume_prev=0;
     bellow_prev=NOPUSH;
 
@@ -717,14 +751,16 @@ void loop()
     //-----------------------------------
     // Initialise loop
     //-----------------------------------
-    //remember old pressed touch
+    //remember old pressed touch and notes
     memcpy(R_prev_press, R_press, sizeof(R_press));
     memcpy(L_prev_press, L_press, sizeof(L_press));
+    memcpy(R_played_note_prev, R_played_note, sizeof(R_played_note));
+    memcpy(L_played_note_prev, L_played_note, sizeof(L_played_note));
+
+    //Reset note count
+    memset(R_played_note,      0, sizeof(R_played_note));
+    memset(L_played_note,      0, sizeof(L_played_note));
     //Zero some variables in doubt
-    notes_to_play_r.clear();
-    notes_to_remove_r.clear();
-    notes_to_play_l.clear();
-    notes_to_remove_l.clear();
     memset(R_press, 0, sizeof(R_press));
     memset(L_press, 0, sizeof(L_press));
 
@@ -781,8 +817,8 @@ void loop()
             }
         }
     }
-    
-    
+
+
 
     // bellow          = PUSH;
     // bellow_not_null = bellow;
@@ -882,41 +918,15 @@ void loop()
     //-----------------------------------
     // Prepare MIDI message
     //-----------------------------------
-    //Right hand
     if(!digitalRead(KEY_MENU)) {
+        //Right hand
         for (size_t i = 0; i < COLUMN_NUMBER_R; i++) {
             for (size_t j = 0; j < ROW_NUMBER_R; j++) {
-                //Add and remove note depending on bellow direction and previous direction
-                if (bellow_prev == PUSH && bellow == PULL) {
-                    if (R_press[i][j]) {
-                        notes_to_remove_r.push_back(R_notesP[i][j]);
-                        notes_to_play_r.push_back(R_notesT[i][j]);
-                    }
-                } else if (bellow_prev == PULL && bellow == PUSH) {
-                    if (R_press[i][j]) {
-                        notes_to_remove_r.push_back(R_notesT[i][j]);
-                        notes_to_play_r.push_back(R_notesP[i][j]);
-                    }
-                }
-                if (R_prev_press[i][j]) {
-                    if (!R_press[i][j]) { //remove note if touch isn't pressed anymore
-                        if (bellow_not_null == PUSH || bellow_prev == PUSH)
-                        {
-                            notes_to_remove_r.push_back(R_notesP[i][j]);
-                        }
-                        if (bellow_not_null == PULL || bellow_prev == PULL)
-                        {
-                            notes_to_remove_r.push_back(R_notesT[i][j]);
-                        }
-                    }
-                } else if (!R_prev_press[i][j]) { //Add notes
-                    if (R_press[i][j]) {
-                        if (bellow_not_null == PUSH) {
-                            notes_to_play_r.push_back(R_notesP[i][j]);
-                        }
-                        else {
-                            notes_to_play_r.push_back(R_notesT[i][j]);
-                        }
+                if (R_press[i][j]) {
+                    if (bellow == PULL) {
+                        R_played_note[R_notesT[i][j]+transpose]++;
+                    } else if (bellow == PUSH) {
+                        R_played_note[R_notesP[i][j]+transpose]++;
                     }
                 }
             }
@@ -925,56 +935,16 @@ void loop()
         //Left hand
         for (size_t i = 0; i < COLUMN_NUMBER_L; i++) {
             for (size_t j = 0; j < ROW_NUMBER_L; j++) {
-                //Add and remove note depending on bellow direction and previous direction
-                if (bellow_prev == PUSH && bellow == PULL) {
-                    if (L_press[i][j]) {
-                        notes_to_remove_l.push_back(L_notesP[i][j]);
-                        notes_to_play_l.push_back(L_notesT[i][j]);
+                if (L_press[i][j]) {
+                    if (bellow == PULL) {
+                        L_played_note[transpose_left_hand(L_notesT[i][j], transpose)]++;
                         if (fifth_enable) {
-                            notes_to_remove_l.push_back(L_notes_fifthP[i][j]);
-                            notes_to_play_l.push_back(L_notes_fifthT[i][j]);
+                            L_played_note[transpose_left_hand(L_notes_fifthT[i][j], transpose)]++;
                         }
-                    }
-                } else if (bellow_prev == PULL && bellow == PUSH) {
-                    if (L_press[i][j]) {
-                        notes_to_remove_l.push_back(L_notesT[i][j]);
-                        notes_to_play_l.push_back(L_notesP[i][j]);
+                    } else if (bellow == PUSH) {
+                        L_played_note[transpose_left_hand(L_notesP[i][j], transpose)]++;
                         if (fifth_enable) {
-                            notes_to_remove_l.push_back(L_notes_fifthT[i][j]);
-                            notes_to_play_l.push_back(L_notes_fifthP[i][j]);
-                        }
-                    }
-                }
-                if (L_prev_press[i][j]) {
-                    if (!L_press[i][j]) { //remove note if touch isn't pressed anymore
-                        if (bellow_not_null == PUSH || bellow_prev == PUSH)
-                        {
-                            notes_to_remove_l.push_back(L_notesP[i][j]);
-                            if (fifth_enable) {
-                                notes_to_remove_l.push_back(L_notes_fifthP[i][j]);
-                            }
-                        }
-                        if (bellow_not_null == PULL || bellow_prev == PULL)
-                        {
-                            notes_to_remove_l.push_back(L_notesT[i][j]);
-                            if (fifth_enable) {
-                                notes_to_remove_l.push_back(L_notes_fifthT[i][j]);
-                            }
-                        }
-                    }
-                } else if (!L_prev_press[i][j]) { //Add notes
-                    if (L_press[i][j]) {
-                        if (bellow_not_null == PUSH) {
-                            notes_to_play_l.push_back(L_notesP[i][j]);
-                            if (fifth_enable) {
-                                notes_to_play_l.push_back(L_notes_fifthP[i][j]);
-                            }
-                        }
-                        else {
-                            notes_to_play_l.push_back(L_notesT[i][j]);
-                            if (fifth_enable) {
-                                notes_to_play_l.push_back(L_notes_fifthT[i][j]);
-                            }
+                            L_played_note[transpose_left_hand(L_notes_fifthP[i][j], transpose)]++;
                         }
                     }
                 }
@@ -982,15 +952,6 @@ void loop()
         }
     }
 
-    //Uniquify the list to minimize number of message
-    notes_to_play_r.sort();
-    notes_to_play_r.unique();
-    notes_to_remove_r.sort();
-    notes_to_remove_r.unique();
-    notes_to_play_l.sort();
-    notes_to_play_l.unique();
-    notes_to_remove_l.sort();
-    notes_to_remove_l.unique();
     //-----------------------------------
     // Send MIDI message
     //-----------------------------------
@@ -1002,47 +963,66 @@ void loop()
         expression_resolved=expression;
     }
 
-    //Right hand on channel 1
-    while (!notes_to_remove_r.empty()) {
-        if (bassoon_enable) {
-            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave-12, 0, channel_rh);
+    //Right hand on channel_rh
+    //Remove all notes first, this goes faster than removing/adding if MIDI RunningStatus is enabled (compress messages with same command/channel)
+    for (int i = 0; i < sizeof(R_played_note); ++i) {
+        if (!R_played_note[i] && R_played_note_prev[i]) {
+            if (bassoon_enable) {
+                midi_broadcast_note_off(i+12*octave-12, 0, channel_rh);
+            }
+            if (picolo_enable) {
+                midi_broadcast_note_off(i+12*octave+12, 0, channel_rh);
+            }
+            if (flute_enable) {
+                midi_broadcast_note_off(i+12*octave, 0, channel_rh);
+            }
         }
-        if (picolo_enable) {
-            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave+12, 0, channel_rh);
-        }
-        if (vibrato!=0) {
-            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave, 0, VIBRATO_CHANNEL);
-        }
-        if (flute_enable!=0) {
-            midi_broadcast_note_off(notes_to_remove_r.back()+12*octave, 0, channel_rh);
-        }
-        notes_to_remove_r.pop_back();
     }
-    while (!notes_to_play_r.empty()) {
-        if (bassoon_enable) {
-            midi_broadcast_note_on(notes_to_play_r.back()+12*octave-12, expression_resolved, channel_rh);
+    //For the same reason, we do vibrato separatedly even if it duplicates a lot of code
+    for (int i = 0; i < sizeof(R_played_note); ++i) {
+        if (!R_played_note[i] && R_played_note_prev[i]) {
+            if (vibrato!=0) {
+                midi_broadcast_note_off(i+12*octave, 0, VIBRATO_CHANNEL);
+            }
         }
-        if (picolo_enable) {
-            midi_broadcast_note_on(notes_to_play_r.back()+12*octave+12, expression_resolved, channel_rh);
+    }
+    //Then we add the notes
+    for (int i = 0; i < sizeof(R_played_note); ++i) {
+        if (R_played_note[i] && !R_played_note_prev[i]) {
+            if (bassoon_enable) {
+                midi_broadcast_note_on(i+12*octave-12, expression_resolved, channel_rh);
+            }
+            if (picolo_enable) {
+                midi_broadcast_note_on(i+12*octave+12, expression_resolved, channel_rh);
+            }
+            if (flute_enable) {
+                midi_broadcast_note_on(i+12*octave, expression_resolved, channel_rh);
+            }
         }
-        if (vibrato!=0) {
-            midi_broadcast_note_on(notes_to_play_r.back()+12*octave, expression_resolved, VIBRATO_CHANNEL);
+    }
+    //Again, we do vibrato separatedly even if it duplicates a lot of code
+    for (int i = 0; i < sizeof(R_played_note); ++i) {
+        if (!R_played_note[i] && R_played_note_prev[i]) {
+            if (vibrato!=0) {
+                midi_broadcast_note_on(i+12*octave, expression_resolved, VIBRATO_CHANNEL);
+            }
         }
-        if (flute_enable!=0) {
-            midi_broadcast_note_on(notes_to_play_r.back()+12*octave, expression_resolved, channel_rh);
-        }
-        notes_to_play_r.pop_back();
     }
 
-    //Left hand on channel 2
-    while (!notes_to_remove_l.empty()) {
-        midi_broadcast_note_off(notes_to_remove_l.back(), 0, channel_lh);
-        notes_to_remove_l.pop_back();
+
+    //Left hand on channel_lh
+    //Remove all the notes first
+    for (int i = 0; i < sizeof(L_played_note); ++i) {
+        if (!L_played_note[i] && L_played_note_prev[i]) {
+            midi_broadcast_note_off(i, 0, channel_lh);
+        }
     }
-    while (!notes_to_play_l.empty()) {
-        midi_broadcast_note_on(notes_to_play_l.back(), expression_resolved, channel_lh);
-        notes_to_play_l.pop_back();
+    for (int i = 0; i < sizeof(L_played_note); ++i) {
+        if (L_played_note[i] && !L_played_note_prev[i]) {
+            midi_broadcast_note_on(i, expression_resolved, channel_lh);
+        }
     }
+
 
     //Send Volume
     if (bellow != NOPUSH) {bellow_prev = bellow;}
