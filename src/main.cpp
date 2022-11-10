@@ -38,8 +38,8 @@
 #include <Wire.h>
 #include <list>
 #include <MCP23017.h>
-#include "mt32.h"
 #include "midi_helper.h"
+#include "mt32.h"
 //OLED lib
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
@@ -219,8 +219,9 @@ bool waiting_p=0;
 
 
 //Midi creation
-MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDIUSB);
-MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDIPI);
+ MIDI_CREATE_CUSTOM_INSTANCE(HardwareSerial, Serial, MIDIUSB, midi_setting_running_status_low_sysex);
+ MIDI_CREATE_CUSTOM_INSTANCE(HardwareSerial, Serial1, MIDIPI, midi_setting_running_status_low_sysex);
+
 //Helper functions
 void midi_broadcast_control_change(uint8_t cc, uint8_t value, uint8_t channel) {
     #ifndef DISABLE_MIDI_USB
@@ -243,9 +244,9 @@ void midi_broadcast_note_on(uint8_t note, uint8_t expression, uint8_t channel) {
 }
 void midi_broadcast_note_off(uint8_t note, uint8_t expression, uint8_t channel) {
     #ifndef DISABLE_MIDI_USB
-        MIDIUSB.sendNoteOff(note, expression, channel);
+        MIDIUSB.sendNoteOn(note, 0, channel);
     #endif
-    MIDIPI.sendNoteOff(note, expression, channel);
+    MIDIPI.sendNoteOn(note, 0, channel);
 }
 void midi_broadcast_send(midi::MidiType command, uint8_t msb, uint8_t lsb, uint8_t channel) {
     #ifndef DISABLE_MIDI_USB
@@ -414,49 +415,49 @@ MENU(debug_config, "Debug menu", doNothing, noEvent, wrapStyle
      , SUBMENU(pressurectrl) //for some reason, menu must have at least 2 elements
     );
 //Keyboard layout submenu TODO
-TOGGLE(octave, octavectrl,          "Octaved : ", doNothing, noEvent, noStyle
+TOGGLE(octave, octavectrl,          "Octaved: ", doNothing, noEvent, noStyle
        , VALUE("-2", -2, doNothing, noEvent)
        , VALUE("-1", -1, doNothing, noEvent)
        , VALUE("2", 2, doNothing, noEvent)
        , VALUE("1", 1, doNothing, noEvent)
        , VALUE("0", 0, doNothing, noEvent)
       );
-TOGGLE(fifth_enable, fifthctrl,     "Fifth   : ", doNothing, noEvent, noStyle
+TOGGLE(fifth_enable, fifthctrl,     "Fifth  : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
-TOGGLE(vibrato, pitchctrl,          "Pitch   : ", doNothing, noEvent, noStyle
+TOGGLE(vibrato, pitchctrl,          "Pitch  : ", doNothing, noEvent, noStyle
        , VALUE("8", 8, menu_midi_vibrato_pitch, noEvent)
        , VALUE("4", 4, menu_midi_vibrato_pitch, noEvent)
        , VALUE("2", 2, menu_midi_vibrato_pitch, noEvent)
        , VALUE("1", 1, menu_midi_vibrato_pitch, noEvent)
        , VALUE("None", 0, menu_midi_vibrato_pitch, noEvent)
       );
-TOGGLE(bassoon_enable, bassoonctrl, "Bassoon : ", doNothing, noEvent, noStyle
+TOGGLE(bassoon_enable, bassoonctrl, "Bassoon: ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
-TOGGLE(picolo_enable, picoloctrl,   "Picolo  : ", doNothing, noEvent, noStyle
+TOGGLE(picolo_enable, picoloctrl,   "Picolo : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
-TOGGLE(flute_enable, flutectrl,     "Flute   : ", doNothing, noEvent, noStyle
+TOGGLE(flute_enable, flutectrl,     "Flute  : ", doNothing, noEvent, noStyle
        , VALUE("ON", HIGH, doNothing, noEvent)
        , VALUE("OFF", LOW, doNothing, noEvent)
       );
-TOGGLE(transpose, transposectrl,    "Key     : ", doNothing, noEvent, noStyle
-       , VALUE("G/C",   0,  doNothing, noEvent)
-       , VALUE("G#/C#", 1,  doNothing, noEvent)
-       , VALUE("A/D",   2,  doNothing, noEvent)
-       , VALUE("Bb/Eb", 3,  doNothing, noEvent)
-       , VALUE("B/E",   4,  doNothing, noEvent)
-       , VALUE("C/F",   5,  doNothing, noEvent)
-       , VALUE("C#/F#", 6,  doNothing, noEvent)
-       , VALUE("D/G",   7,  doNothing, noEvent)
-       , VALUE("Eb/Ab", 8,  doNothing, noEvent)
-       , VALUE("E/A",   9,  doNothing, noEvent)
-       , VALUE("F/Bb",  10, doNothing, noEvent)
-       , VALUE("F#/B",  11, doNothing, noEvent)
+TOGGLE(transpose, transposectrl,    "Key    : ", doNothing, noEvent, noStyle
+       , VALUE("G/C   ",    0,  doNothing, noEvent)
+       , VALUE("Ab/Db 5b +1",  1,  doNothing, noEvent)
+       , VALUE("A/D   2# +2",  2,  doNothing, noEvent)
+       , VALUE("Bb/Eb 3b +3",  3,  doNothing, noEvent)
+       , VALUE("B/E   4# +4",  4,  doNothing, noEvent)
+       , VALUE("C/F   1b +5",  5,  doNothing, noEvent)
+       , VALUE("C#/F# 6#b ", 6,  doNothing, noEvent)
+       , VALUE("D/G   1# +7",  7,  doNothing, noEvent)
+       , VALUE("Eb/Ab 4b +8",  8,  doNothing, noEvent)
+       , VALUE("E/A   3# +9",  9,  doNothing, noEvent)
+       , VALUE("F/Bb 2b +10",  10, doNothing, noEvent)
+       , VALUE("F#/B 5# +11",  11, doNothing, noEvent)
       );
 MENU(keyboard_config, "Keyboard config", doNothing, noEvent, wrapStyle
      , SUBMENU(octavectrl)
@@ -965,9 +966,9 @@ void loop()
     }
 
     //Right hand on channel_rh
-    //Remove all notes first, this goes faster than removing/adding if MIDI RunningStatus is enabled (compress messages with same command/channel)
-    for (int i = 0; i < sizeof(R_played_note); ++i) {
-        if (!R_played_note[i] && R_played_note_prev[i]) {
+    //Remove/add the notes for RH channel
+    for (uint8_t i = 0; i < sizeof(R_played_note); ++i) {
+        if (!R_played_note[i] && R_played_note_prev[i]) { //Remove if no longer played
             if (bassoon_enable) {
                 midi_broadcast_note_off(i+12*octave-12, 0, channel_rh);
             }
@@ -978,18 +979,7 @@ void loop()
                 midi_broadcast_note_off(i+12*octave, 0, channel_rh);
             }
         }
-    }
-    //For the same reason, we do vibrato separatedly even if it duplicates a lot of code
-    for (int i = 0; i < sizeof(R_played_note); ++i) {
-        if (!R_played_note[i] && R_played_note_prev[i]) {
-            if (vibrato!=0) {
-                midi_broadcast_note_off(i+12*octave, 0, VIBRATO_CHANNEL);
-            }
-        }
-    }
-    //Then we add the notes
-    for (int i = 0; i < sizeof(R_played_note); ++i) {
-        if (R_played_note[i] && (!R_played_note_prev[i] || bellow_not_null != bellow_prev)) { //We must also relaunch note if bellow changed direction
+        if (R_played_note[i] && (!R_played_note_prev[i] || bellow_not_null != bellow_prev)) { //Add/relaunch note if bellow changed direction
             if (bassoon_enable) {
                 midi_broadcast_note_on(i+12*octave-12, expression_resolved, channel_rh);
             }
@@ -1001,8 +991,13 @@ void loop()
             }
         }
     }
-    //Again, we do vibrato separatedly even if it duplicates a lot of code
-    for (int i = 0; i < sizeof(R_played_note); ++i) {
+    //We do vibrato separatedly even if it duplicates of code because to optimise with MIDI RunningStatus
+    for (uint8_t i = 0; i < sizeof(R_played_note); ++i) {
+        if (!R_played_note[i] && R_played_note_prev[i]) {
+            if (vibrato!=0) {
+                midi_broadcast_note_off(i+12*octave, 0, VIBRATO_CHANNEL);
+            }
+        }
         if (R_played_note[i] && (!R_played_note_prev[i] || bellow_not_null != bellow_prev)) { //We must also relaunch note if bellow changed direction
             if (vibrato!=0) {
                 midi_broadcast_note_on(i+12*octave, expression_resolved, VIBRATO_CHANNEL);
@@ -1010,15 +1005,12 @@ void loop()
         }
     }
 
-
     //Left hand on channel_lh
     //Remove all the notes first
-    for (int i = 0; i < sizeof(L_played_note); ++i) {
+    for (uint8_t i = 0; i < sizeof(L_played_note); ++i) {
         if (!L_played_note[i] && L_played_note_prev[i]) {
             midi_broadcast_note_off(i, 0, channel_lh);
         }
-    }
-    for (int i = 0; i < sizeof(L_played_note); ++i) {
         if (L_played_note[i] && (!L_played_note_prev[i] || bellow_not_null != bellow_prev)) {
             midi_broadcast_note_on(i, expression_resolved, channel_lh);
         }

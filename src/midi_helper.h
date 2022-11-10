@@ -85,8 +85,15 @@
 #define MIDI_CC_REVERB     91
 #define MIDI_CC_CHORUS     93
 
+struct midi_setting_running_status_low_sysex : public midi::DefaultSettings
+{
+static const unsigned SysExMaxSize = 8; // Accept SysEx messages up to 1024 bytes long.
+static const bool UseRunningStatus = true;
+};
+
+
 /* Minimal set of functions for MIDI */
-void midi_send_master_volume(uint8_t volume, midi::MidiInterface<HardwareSerial> MIDI) {
+void midi_send_master_volume(uint8_t volume, midi::MidiInterface<HardwareSerial, midi_setting_running_status_low_sysex> MIDI) {
     uint8_t data[6];
     data[0]=0x7f; //REALTIME
     data[1]=0x7f; //Disregard
