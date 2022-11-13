@@ -747,6 +747,23 @@ void setup()
     if (bmp_status == 0) {Serial.println("error retrieving pressure measurement\n");}
     p_tare=P;
 
+    //For some reason, the Arduino boot mess with the voltage (current draw? noise ?)
+    //This creates undervoltage warnings and throttling on the PI, and create a lot of artefacts on the audio
+    //We must start the PI only once Arduino boot is 'over' (this suppose the PI is already powered and ready when Arduino start)
+    
+    //Wait a bit until voltage is stable
+    delay(2000);
+    //Reboot the PI with a SYSEX command
+    oled.clear();
+    oled.print("Reboot PI...");
+    mt32_reboot(MIDIPI);
+    //Wait for the PI to reboot, we can skip this if we don't want to wait (-->boot without PI)
+    if(!digitalRead(KEY_MENU)) {
+        delay(7000);
+    }
+    //The we can send the configuration
+    oled.clear();
+    oled.print("Init PI");
     mt32_switch_synth(mt32_synth, MIDIPI);
     menu_mt32_switch_soundfont();
     menu_midi_program_change_rh();
@@ -763,6 +780,7 @@ void setup()
     #ifdef DEBUG
         Serial.println("INIT OK.");
     #endif
+    oled.clear();
     oled.print("INIT OK !");
     delay(1000);
     oled.clear();
