@@ -218,8 +218,9 @@ MCP23017  mcp_rh_1 = MCP23017(MCP23017_ADDRESS | MCP23017_RH_1_SUB_ADDRESS);
 MCP23017  mcp_lh_0 = MCP23017(MCP23017_ADDRESS | MCP23017_LH_0_SUB_ADDRESS);
 MCP23017  mcp_lh_1 = MCP23017(MCP23017_ADDRESS | MCP23017_LH_1_SUB_ADDRESS);
 
-
-
+//DEBUG
+uint32_t loop_count;
+uint32_t max_count=0;
 //OLED
 SSD1306AsciiWire oled;
 char str_oled[128/fontW];
@@ -307,7 +308,10 @@ uint8_t chorus_lh           = 0;
 bool    mt32_synth          = MT32_SOUNDFONT;
 bool    debug_oled          = 0;
 bool    dummy               = 0;
-bool    reverse_expr_volume = 0;
+#define VOLUME_NORMAL   0
+#define VOLUME_REVERTED 1
+#define VOLUME_CONSTANT  2
+uint8_t volume_type         = VOLUME_NORMAL;
 bool    fifth_enable        = 1;
 bool    bassoon_enable      = 0;
 bool    picolo_enable       = 0;
@@ -388,26 +392,41 @@ result menu_mt32_switch_synth() {
     menu_midi_program_change_lh();
     return proceed;
 }
+
 //MT32 submenu
-TOGGLE(mt32_synth, synthctrl, "Synth     : ", doNothing, noEvent, noStyle
+TOGGLE(mt32_synth, synthctrl, "Synth: ", doNothing, noEvent, noStyle
        , VALUE("SF", HIGH, menu_mt32_switch_synth, noEvent)
        , VALUE("MT32", LOW, menu_mt32_switch_synth, noEvent)
       );
-TOGGLE(mt32_rom_set, romctrl, "ROM       : ", doNothing, noEvent, noStyle
+TOGGLE(mt32_rom_set, romctrl, "ROM  : ", doNothing, noEvent, noStyle
        , VALUE("MT32_OLD", 0x00, menu_mt32_switch_rom_set, noEvent)
        , VALUE("MT32_NEW", 0x01, menu_mt32_switch_rom_set, noEvent)
        , VALUE("CM_32L", 0x02, menu_mt32_switch_rom_set, noEvent)
       );
+TOGGLE(mt32_soundfont, sfctrl, "SF   : ", doNothing, noEvent, noStyle
+       , VALUE("0-GM      ", 0,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("1-Loffet  ", 1,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("2-Seraf   ", 2,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("3-Gaillard", 3,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("4-Diato   ", 4,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("5         ", 5,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("6         ", 6,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("7         ", 7,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("8         ", 8,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("9         ", 9,  menu_mt32_switch_soundfont, noEvent)
+       , VALUE("10        ", 10, menu_mt32_switch_soundfont, noEvent)
+      );
 MENU(mt32_config, "MT32 config", doNothing, noEvent, wrapStyle
-     , FIELD(mt32_soundfont, "SoundFont :", "", 0, 10, 1, 1, menu_mt32_switch_soundfont, anyEvent, wrapStyle)
+     , SUBMENU(sfctrl)
      , SUBMENU(synthctrl)
      , SUBMENU(romctrl)
     );
 
 //MIDICONF submenu
-TOGGLE(reverse_expr_volume, reversectrl, "Velo/expr : ", doNothing, noEvent, noStyle
-       , VALUE("NORMAL", LOW, menu_mt32_switch_synth, noEvent)
-       , VALUE("INVERTED", HIGH, menu_mt32_switch_synth, noEvent)
+TOGGLE(volume_type, volumetypectrl, "Volume type : ", doNothing, noEvent, noStyle
+       , VALUE("NORMAL",   VOLUME_NORMAL,   menu_mt32_switch_synth, noEvent)
+       , VALUE("INVERTED", VOLUME_REVERTED, menu_mt32_switch_synth, noEvent)
+       , VALUE("CONSTANT", VOLUME_CONSTANT, menu_mt32_switch_synth, noEvent)
       );
 MENU(midi_config, "MIDI config", doNothing, noEvent, wrapStyle
      , FIELD(channel_lh, "Channel LH :", "", 0, 15, 1, 1  , doNothing                  , anyEvent, wrapStyle)
@@ -420,7 +439,7 @@ MENU(midi_config, "MIDI config", doNothing, noEvent, wrapStyle
      , FIELD(reverb_rh , "Reverb RH :" , "", 0, 127, 16, 1, menu_midi_reverb_change_rh , anyEvent, wrapStyle)
      , FIELD(chorus_lh , "Chorus LH :" , "", 0, 127, 16, 1, menu_midi_chorus_change_lh , anyEvent, wrapStyle)
      , FIELD(chorus_rh , "Chorus RH :" , "", 0, 127, 16, 1, menu_midi_chorus_change_rh , anyEvent, wrapStyle)
-     , SUBMENU(reversectrl)
+     , SUBMENU(volumetypectrl)
     );
 //Debug submenu
 TOGGLE(debug_oled, debugoledctrl, "Debug OLED : ", doNothing, noEvent, noStyle
@@ -500,6 +519,7 @@ TOGGLE(volume_attenuation, volmumectrl, "Volume att: ", doNothing, noEvent, noSt
        , VALUE("-32", 32, doNothing, noEvent)
        , VALUE("-48", 48, doNothing, noEvent)
        , VALUE("-64", 64, doNothing, noEvent)
+       , VALUE("-80", 80, doNothing, noEvent)
       );
 TOGGLE(expression, expressionctrl, "Expression: ", doNothing, noEvent, noStyle
        , VALUE("127", 127, doNothing, noEvent)
@@ -516,6 +536,61 @@ MENU(mainMenu, "Main menu", doNothing, noEvent, wrapStyle
      , SUBMENU(keyboard_config)
      , SUBMENU(debug_config)
     );
+
+//Preset functions
+#define PRESET_DEFAULT 0    //Default preset, return all to factory --> to use on headset
+#define PRESET_MIXED_OUT 1  //Send mixed RH/LH full volume, keep pano and reverb --> to use on external speakers
+#define PRESET_SPLIT_OUT 2  //Send split RH/LH on L/R channels, full volume, no pano, no reverb --> to use with REAPER
+
+
+void set_preset (uint8_t preset) {
+    switch (preset)
+    {
+    case PRESET_DEFAULT:
+        volume_attenuation  = 48;
+        expression          = 127;
+        mt32_rom_set        = 0;
+        mt32_soundfont      = 1;
+        octave              = 1;
+        pressuremode        = 2;
+        program_rh          = 0;
+        program_lh          = 1;
+        channel_rh          = 1;
+        channel_lh          = 2;
+        pano_rh             = 38;
+        pano_lh             = 42;
+        reverb_rh           = 8;
+        reverb_lh           = 8;
+        chorus_rh           = 4;
+        chorus_lh           = 0;
+        mt32_synth          = MT32_SOUNDFONT;
+        volume_type         = VOLUME_NORMAL;
+        fifth_enable        = 1;
+        bassoon_enable      = 0;
+        picolo_enable       = 0;
+        flute_enable        = 1;
+        vibrato             = 0;
+        vibrato_prev        = 0;
+        transpose           = 0;
+        break;
+    case PRESET_SPLIT_OUT:
+        set_preset(PRESET_DEFAULT);
+        volume_attenuation  = 0;
+        pano_rh             = 0;
+        pano_lh             = 127;
+        reverb_rh           = 0;
+        reverb_lh           = 0;
+        chorus_rh           = 0;
+        break;
+    default:
+        break;
+    }
+    menu_midi_program_change_lh();
+    menu_midi_vibrato_pitch();
+    menu_mt32_switch_rom_set();
+    menu_mt32_switch_soundfont();
+    menu_mt32_switch_synth();
+}
 
 //describing a menu output device without macros
 //define at least one panel for menu output
@@ -616,8 +691,8 @@ uint8_t transpose_left_hand(uint8_t note_in, uint8_t transpose) {
 #define TOGGLE_PICCOLO 2
 #define TOGGLE_VIBRATO 3
 
-void set_preset(uint8_t preset){
-    switch (preset) {
+void set_stops(uint8_t stops){
+    switch (stops) {
         case TOGGLE_BASSOON:
             bassoon_enable=!bassoon_enable;
             break;
@@ -761,7 +836,7 @@ void setup()
     if(!digitalRead(KEY_MENU)) {
         delay(7000);
     }
-    //The we can send the configuration
+    //Then we can send the configuration
     oled.clear();
     oled.print("Init PI");
     mt32_switch_synth(mt32_synth, MIDIPI);
@@ -789,10 +864,13 @@ void setup()
 //###############################################
 //Main loop
 //###############################################
+uint32_t t__dbg_loop, t__dbg_init, t__dbg_press, t__dbg_key, t__dbg_menu, t__dbg_prep_midi, t__dbg_send_midi, t__dbg_temp, t__dbg_start;
 void loop()
 {
-
-    //-----------------------------------
+    #ifdef DEBUG
+    t__dbg_temp=micros();
+    t__dbg_start=micros();
+    #endif
     // Initialise loop
     //-----------------------------------
     //remember old pressed touch and notes
@@ -807,6 +885,11 @@ void loop()
     //Zero some variables in doubt
     memset(R_press, 0, sizeof(R_press));
     memset(L_press, 0, sizeof(L_press));
+
+    #ifdef DEBUG
+    if(micros()-t__dbg_temp>t__dbg_init){t__dbg_init=micros()-t__dbg_temp;}
+    t__dbg_temp=micros();
+    #endif
 
     //-----------------------------------
     // Temp & pressure mesurement
@@ -863,10 +946,16 @@ void loop()
     }
 
 
+    #ifdef DEBUG
+    if(micros()-t__dbg_temp>t__dbg_press){t__dbg_press=micros()-t__dbg_temp;}
+    t__dbg_temp=micros();
+    #endif
 
-    // bellow          = PUSH;
-    // bellow_not_null = bellow;
-    // volume = 100 ;
+
+    if(volume_type==VOLUME_CONSTANT){
+        bellow_not_null = bellow;
+        volume = 100 - volume_attenuation ;
+    }
 
     //-----------------------------------
     // Key acquisition from MCP
@@ -894,6 +983,13 @@ void loop()
             L_press[i][j]=(keys_lh_row[i] & (1<<(j)))>>(j);
         }
     }
+
+
+
+    #ifdef DEBUG
+    if(micros()-t__dbg_temp>t__dbg_key){t__dbg_key=micros()-t__dbg_temp;}
+    t__dbg_temp=micros();
+    #endif
     //-----------------------------------
     //Menu navigation & presets
     //-----------------------------------
@@ -916,18 +1012,29 @@ void loop()
             nav.doInput(strIn);
         }
         nav.poll();
-        //Presets
+        //Registers
         if (R_press[2][8] && ! R_prev_press[2][8]) {
-            set_preset(TOGGLE_BASSOON);
+            set_stops(TOGGLE_BASSOON);
         }
         if (R_press[2][7] && ! R_prev_press[2][7]) {
-            set_preset(TOGGLE_VIBRATO);
+            set_stops(TOGGLE_VIBRATO);
         }
         if (R_press[2][6] && ! R_prev_press[2][6]) {
-            set_preset(TOGGLE_PICCOLO);
+            set_stops(TOGGLE_PICCOLO);
         }
         if (R_press[2][5] && ! R_prev_press[2][5]) {
-            set_preset(TOGGLE_FLUTE);
+            set_stops(TOGGLE_FLUTE);
+        }
+
+        //Presets
+        if (R_press[1][8] && ! R_prev_press[1][8]) {
+            set_preset(PRESET_DEFAULT);
+        }
+        if (R_press[1][7] && ! R_prev_press[1][7]) {
+            set_preset(PRESET_SPLIT_OUT);
+        }
+        if (R_press[1][6] && ! R_prev_press[1][6]) {
+            set_preset(PRESET_MIXED_OUT);
         }
 
         if(!debug_oled){
@@ -958,6 +1065,10 @@ void loop()
         }
     }
 
+    #ifdef DEBUG
+    if(micros()-t__dbg_temp>t__dbg_menu){t__dbg_menu=micros()-t__dbg_temp;}
+    t__dbg_temp=micros();
+    #endif
 
     //-----------------------------------
     // Prepare MIDI message
@@ -995,11 +1106,16 @@ void loop()
             }
         }
     }
+    
+    #ifdef DEBUG
+    if(micros()-t__dbg_temp>t__dbg_prep_midi){t__dbg_prep_midi=micros()-t__dbg_temp;}
+    t__dbg_temp=micros();
+    #endif
 
     //-----------------------------------
     // Send MIDI message
     //-----------------------------------
-    if(reverse_expr_volume){
+    if(volume_type==VOLUME_REVERTED){
         volume_resolved = (expression>volume_attenuation) ? expression-volume_attenuation : 0;
         expression_resolved = (volume != 0) ? volume+volume_attenuation : 0;
     } else {
@@ -1070,6 +1186,11 @@ void loop()
     }
     volume_prev=volume_resolved;
 
+    #ifdef DEBUG
+    if(micros()-t__dbg_temp>t__dbg_send_midi){t__dbg_send_midi=micros()-t__dbg_temp;}
+    t__dbg_temp=micros();
+    #endif
+
     if(debug_oled){
         //Fancy displays (take a while and eat screen space so we limit it to debug)
         //Volume
@@ -1118,26 +1239,46 @@ void loop()
         }
     }
 
-
     #ifdef DEBUG
-        Serial.println("DEBUG DURATION");
+    if(micros()-t__dbg_start>t__dbg_loop){t__dbg_loop=micros()-t__dbg_start;}
+    #endif
+    #ifdef DEBUG
+        // Serial.println("DEBUG DURATION");
+        if(loop_count>1000){
+            loop_count=0;
+            Serial.print(millis(),DEC);
+            Serial.print(";");
+            Serial.print(p_offset,DEC);
+            Serial.print(";");
+            Serial.print(volume,DEC);
+            Serial.print(";\n");
 
-        Serial.println("init");
-        Serial.println(t__dbg_init     - t__dbg_loop    , DEC);
-        Serial.println("press1");
-        Serial.println(t__dbg_press   - t__dbg_init      , DEC);
-        Serial.println("key");
-        Serial.println(t__dbg_key      - t__dbg_press    , DEC);
-        Serial.println("menu");
-        Serial.println(t__dbg_menu     - t__dbg_key       , DEC);
-        Serial.println("press wait");
-        Serial.println(t__dbg_prep_midi - t__dbg_menu      , DEC);
-        Serial.println("send midi");
-        Serial.println(t__dbg_send_midi- t__dbg_prep_midi , DEC);
-        Serial.println("total");
-        Serial.println(t__dbg_send_midi- t__dbg_loop      , DEC);
-
-        Serial.println("END\n\r");
+            Serial.println("init");
+            Serial.println(t__dbg_init    , DEC);
+            Serial.println("press1");
+            Serial.println(t__dbg_press      , DEC);
+            Serial.println("key");
+            Serial.println(t__dbg_key    , DEC);
+            Serial.println("menu");
+            Serial.println(t__dbg_menu      , DEC);
+            Serial.println("press wait");
+            Serial.println(t__dbg_prep_midi      , DEC);
+            Serial.println("send midi");
+            Serial.println(t__dbg_send_midi , DEC);
+            Serial.println("total");
+            Serial.println(t__dbg_loop      , DEC);
+            t__dbg_loop      = 0;
+            t__dbg_init      = 0;
+            t__dbg_press     = 0;
+            t__dbg_key       = 0;
+            t__dbg_menu      = 0;
+            t__dbg_prep_midi = 0;
+            t__dbg_send_midi = 0;
+            // delay(100);
+        }
+        loop_count++;
+    
+        // Serial.println("END\n\r");
         // Serial.write(27);       // ESC command
         // Serial.print("[2J");    // clear screen command
         // Serial.write(27);
@@ -1153,6 +1294,5 @@ void loop()
         //     Serial.print("   ");
         // }
         // Serial.print("\n\r");
-        delay(1000);
     #endif
 }
